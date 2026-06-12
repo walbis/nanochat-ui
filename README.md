@@ -32,18 +32,31 @@ See [dev/LEADERBOARD.md](dev/LEADERBOARD.md) for more docs on how to interpret a
 This repo includes an additive CUDA/NVIDIA quickstart UI for running the nanochat
 pipeline from a browser without editing upstream nanochat code.
 
-On Windows PowerShell:
+On Windows PowerShell, first enter the repo directory. If you cloned this UI repo:
+
+```powershell
+git clone https://github.com/walbis/nanochat-ui.git
+cd nanochat-ui
+```
+
+Or, in this local workspace:
+
+```powershell
+cd C:\Users\berka\Desktop\Projects\nanochat-mlx\nanochat
+```
+
+Then run:
 
 ```powershell
 uv sync --extra gpu
-uv run python -m scripts.quickstart --port 8000
+uv run --extra gpu python -m scripts.quickstart --port 8000
 ```
 
 Then open [http://127.0.0.1:8000](http://127.0.0.1:8000). If port 8000 is already
 in use, start it on another port, for example:
 
 ```powershell
-uv run python -m scripts.quickstart --port 8001
+uv run --extra gpu python -m scripts.quickstart --port 8001
 ```
 
 `start_quickstart.bat` is a convenience wrapper for the same quickstart command.

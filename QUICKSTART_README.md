@@ -25,16 +25,29 @@ for that run instead of crashing.
 
 ## Launch
 
-Recommended from Windows PowerShell:
+Recommended from Windows PowerShell. First enter the repo directory:
 
 ```powershell
-uv run python -m scripts.quickstart --port 8000
+cd C:\Users\berka\Desktop\Projects\nanochat-mlx\nanochat
+```
+
+If you cloned from GitHub instead:
+
+```powershell
+git clone https://github.com/walbis/nanochat-ui.git
+cd nanochat-ui
+```
+
+Then run:
+
+```powershell
+uv run --extra gpu python -m scripts.quickstart --port 8000
 ```
 
 Then open http://127.0.0.1:8000. If port 8000 is already in use:
 
 ```powershell
-uv run python -m scripts.quickstart --port 8001
+uv run --extra gpu python -m scripts.quickstart --port 8001
 ```
 
 `start_quickstart.bat` is a convenience wrapper for the same command.
