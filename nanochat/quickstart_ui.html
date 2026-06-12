@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NanoChat CUDA Quickstart</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #fafaf9;
+            --panel: #ffffff;
+            --panel-soft: #fafaf9;
+            --text: #1c1c1e;
+            --text-subtle: #3a3a3c;
+            --text-muted: #86868b;
+            --border: #e8e8e7;
+            --border-strong: #d1d1d6;
+            --hover: #f5f5f4;
+            --primary: #007AFF;
+            --primary-hover: #0066d6;
+            --primary-soft: #007AFF11;
+            --success: #34C759;
+            --danger: #FF3B30;
+            --danger-hover: #d63029;
+            --secondary: #e8e8e7;
+            --secondary-hover: #d1d1d6;
+            --disabled: #b0b0b5;
+            --terminal-bg: #1c1c1e;
+            --terminal-text: #e5e5e5;
+            --chat-user: #f3f4f6;
+            --chat-assistant: #f0f7ff;
+            --focus: #007AFF22;
+            --canvas-grid: #e8e8e7;
+        }
+        body.dark {
+            color-scheme: dark;
+            --bg: #111214;
+            --panel: #1b1d21;
+            --panel-soft: #24272d;
+            --text: #f2f3f5;
+            --text-subtle: #d7dae0;
+            --text-muted: #9aa0aa;
+            --border: #2f333b;
+            --border-strong: #444a55;
+            --hover: #272b32;
+            --primary: #5aa9ff;
+            --primary-hover: #83bdff;
+            --primary-soft: #5aa9ff1f;
+            --success: #41d86d;
+            --danger: #ff6159;
+            --danger-hover: #ff7b74;
+            --secondary: #30343c;
+            --secondary-hover: #3d434e;
+            --disabled: #555b66;
+            --terminal-bg: #090a0c;
+            --terminal-text: #e8eaed;
+            --chat-user: #29313d;
+            --chat-assistant: #1d3144;
+            --focus: #5aa9ff2b;
+            --canvas-grid: #343942;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+
+        body {
+            font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            height: 100dvh;
+            overflow: hidden;
+        }
+
+        /* --- Sidebar --- */
+        .sidebar {
+            width: 240px;
+            background: var(--panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 16px;
+            flex-shrink: 0;
+        }
+        .sidebar-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 4px;
+            letter-spacing: -0.3px;
+        }
+        .sidebar-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 28px;
+        }
+        .step-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+        .step-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 12px; border-radius: 10px;
+            cursor: pointer; transition: background 0.15s;
+            font-size: 14px; font-weight: 500; color: var(--text-subtle);
+        }
+        .step-item:hover { background: var(--hover); }
+        .step-item.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+        .step-item.locked { opacity: 0.4; cursor: not-allowed; }
+        .step-icon {
+            width: 22px; height: 22px; border-radius: 50%;
+            border: 2px solid var(--border-strong); display: flex; align-items: center;
+            justify-content: center; font-size: 11px; flex-shrink: 0;
+            transition: all 0.2s;
+        }
+        .step-item.active .step-icon { border-color: var(--primary); }
+        .step-icon.done { background: var(--success); border-color: var(--success); color: #fff; }
+        .step-icon.available { border-color: var(--success); color: var(--success); }
+        .step-icon.running { border-color: var(--primary); animation: pulse 1.2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .sidebar-actions { margin-top: auto; padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+        .mini-btn {
+            border: 1px solid var(--border-strong); background: var(--panel); color: var(--text-subtle);
+            border-radius: 8px; padding: 8px 10px; font-size: 12px;
+            font-weight: 600; cursor: pointer;
+        }
+        .mini-btn:hover { background: var(--hover); }
+
+        /* --- Main --- */
+        .main {
+            flex: 1; display: flex; flex-direction: column;
+            overflow: hidden; min-width: 0;
+        }
+        .main-header {
+            padding: 24px 32px 0;
+        }
+        .main-header h2 {
+            font-size: 22px; font-weight: 700; letter-spacing: -0.4px;
+        }
+        .main-header p {
+            font-size: 14px; color: var(--text-muted); margin-top: 4px;
+        }
+
+        .step-content {
+            flex: 1; overflow-y: auto; padding: 20px 32px 32px;
+            display: none; flex-direction: column; gap: 16px;
+        }
+        .step-content.visible { display: flex; }
+
+        /* --- Config panel --- */
+        .config-panel {
+            background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+            padding: 20px; display: flex; flex-wrap: wrap; gap: 16px;
+        }
+        .config-field { display: flex; flex-direction: column; gap: 4px; }
+        .config-field label {
+            font-size: 12px; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .config-field select, .config-field input[type="number"], .config-field input[type="text"] {
+            padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 8px;
+            font-size: 14px; background: var(--panel-soft); color: var(--text);
+            outline: none; min-width: 120px;
+        }
+        .config-field select:focus, .config-field input:focus {
+            border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus);
+        }
+        .toggle-field { display: flex; align-items: center; gap: 8px; }
+        .toggle-field input[type="checkbox"] {
+            width: 18px; height: 18px; accent-color: var(--primary);
+        }
+        .toggle-field label { font-size: 14px; color: var(--text-subtle); cursor: pointer; }
+
+        /* --- Buttons --- */
+        .btn {
+            padding: 10px 24px; border: none; border-radius: 10px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: all 0.15s; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-primary:disabled { background: var(--disabled); cursor: not-allowed; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-secondary { background: var(--secondary); color: var(--text-subtle); }
+        .btn-secondary:hover { background: var(--secondary-hover); }
+        .mode-toggle {
+            display: inline-flex;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border-strong);
+        }
+        .mode-btn {
+            border-radius: 0;
+            border: none;
+            background: var(--secondary);
+            color: var(--text-subtle);
+            padding: 8px 20px;
+            font-size: 13px;
+        }
+        .mode-btn.active { background: var(--primary); color: #fff; }
+
+        /* --- Terminal --- */
+        .terminal {
+            background: var(--terminal-bg); color: var(--terminal-text); border-radius: 12px;
+            padding: 16px; font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 12px; line-height: 1.6; overflow-y: auto;
+            max-height: 300px; min-height: 80px; white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .terminal.expanded { max-height: none; flex: 1; }
+        .terminal-toggle {
+            font-size: 12px; color: var(--text-muted); cursor: pointer;
+            text-decoration: underline; align-self: flex-start;
+        }
+
+        /* --- Stats bar --- */
+        .stats-bar {
+            display: flex; gap: 20px; flex-wrap: wrap;
+            padding: 12px 16px; background: var(--panel);
+            border: 1px solid var(--border); border-radius: 12px;
+        }
+        .stat { display: flex; flex-direction: column; }
+        .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        /* --- Chart --- */
+        .chart-container {
+            background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+            padding: 20px; position: relative;
+        }
+        .chart-container canvas { width: 100%; height: 220px; display: block; }
+        .chart-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; }
+
+        /* --- Chat --- */
+        .chat-area {
+            flex: 1; display: flex; flex-direction: column;
+            background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+            overflow: hidden; min-height: 300px;
+        }
+        .chat-messages {
+            flex: 1; overflow-y: auto; padding: 20px;
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        .chat-msg { max-width: 75%; line-height: 1.5; font-size: 14px; }
+        .chat-msg.user {
+            align-self: flex-end; background: var(--chat-user);
+            padding: 10px 14px; border-radius: 16px 16px 4px 16px;
+        }
+        .chat-msg.assistant {
+            align-self: flex-start; padding: 10px 14px;
+            border-radius: 16px 16px 16px 4px; background: var(--chat-assistant);
+        }
+        .chat-input-bar {
+            display: flex; gap: 8px; padding: 12px 16px;
+            border-top: 1px solid var(--border);
+        }
+        .chat-input-bar textarea {
+            flex: 1; padding: 10px 14px; border: 1px solid var(--border-strong);
+            border-radius: 10px; font-size: 14px; resize: none;
+            outline: none; font-family: inherit; min-height: 42px; max-height: 120px;
+            background: var(--panel-soft); color: var(--text);
+        }
+        .chat-input-bar textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus); }
+        .chat-input-bar button {
+            padding: 0 16px; background: var(--primary); color: #fff;
+            border: none; border-radius: 10px; font-size: 14px;
+            font-weight: 600; cursor: pointer;
+        }
+        .chat-input-bar button:disabled { background: var(--disabled); cursor: not-allowed; }
+        .chat-input-bar button.btn-clear {
+            background: var(--secondary);
+            color: var(--text-subtle);
+        }
+        .chat-input-bar button.btn-clear:hover { background: var(--secondary-hover); }
+        .chat-params {
+            display: flex; gap: 16px; padding: 8px 16px;
+            border-top: 1px solid var(--border); align-items: center;
+        }
+        .chat-params label { font-size: 12px; color: var(--text-muted); }
+        .chat-params input[type="range"] { width: 80px; accent-color: var(--primary); }
+        .chat-params span { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 28px; }
+
+        .empty-state {
+            display: flex; align-items: center; justify-content: center;
+            flex: 1; color: var(--text-muted); font-size: 14px;
+        }
+        .gpu-info { color: var(--success); font-weight: 600; }
+        .optional-label { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+        .inline-status { font-size: 13px; color: var(--text-muted); align-self: center; }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-title">nanochat cuda</div>
+        <div class="sidebar-subtitle" style="margin-bottom:6px;">Quickstart Wizard</div>
+        <div class="sidebar-subtitle gpu-info" id="gpuInfo">detecting GPU...</div>
+        <ul class="step-list">
+            <li class="step-item active" data-step="0" onclick="goStep(0)">
+                <span class="step-icon" id="icon0"></span> Download Data
+            </li>
+            <li class="step-item locked" data-step="1" onclick="goStep(1)">
+                <span class="step-icon" id="icon1"></span> Train Tokenizer
+            </li>
+            <li class="step-item locked" data-step="2" onclick="goStep(2)">
+                <span class="step-icon" id="icon2"></span> Get Model
+            </li>
+            <li class="step-item locked" data-step="3" onclick="goStep(3)">
+                <span class="step-icon" id="icon3"></span> Fine-Tune <span class="optional-label">(Optional)</span>
+            </li>
+            <li class="step-item locked" data-step="4" onclick="goStep(4)">
+                <span class="step-icon" id="icon4"></span> Chat
+            </li>
+        </ul>
+        <div class="sidebar-actions">
+            <button class="mini-btn" id="themeToggle" onclick="toggleTheme()">Dark Mode</button>
+            <button class="mini-btn" onclick="resetUiProgress()">Reset UI</button>
+        </div>
+    </nav>
+
+    <!-- Main -->
+    <div class="main">
+
+        <!-- Step 0: Download Data -->
+        <div class="step-content visible" id="step0">
+            <div class="main-header">
+                <h2>Download Data</h2>
+                <p>Download ClimbMix data shards for training (~100 MB each, plus the validation shard).</p>
+            </div>
+            <div class="config-panel">
+                <div class="config-field">
+                    <label>Shards</label>
+                    <select id="cfgShards">
+                        <option value="2">2 (~300 MB)</option>
+                        <option value="4" selected>4 (~500 MB)</option>
+                        <option value="8">8 (~900 MB, full tokenizer training)</option>
+                        <option value="16">16 (~1.7 GB)</option>
+                        <option value="32">32 (~3.3 GB)</option>
+                        <option value="170">170 (~17 GB, GPT-2 grade run)</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <button class="btn btn-primary" id="btnData" onclick="runData()">Download Data</button>
+            </div>
+            <div class="terminal" id="term0"></div>
+        </div>
+
+        <!-- Step 1: Tokenizer -->
+        <div class="step-content" id="step1">
+            <div class="main-header">
+                <h2>Train Tokenizer</h2>
+                <p>Train a BPE tokenizer (vocab size 32768) on the downloaded data.</p>
+            </div>
+            <div class="config-panel">
+                <div class="config-field">
+                    <label>Training Chars</label>
+                    <select id="cfgTokChars">
+                        <option value="250000000">250M (fast)</option>
+                        <option value="500000000">500M</option>
+                        <option value="1000000000">1B</option>
+                        <option value="2000000000" selected>2B (default, needs 8 shards)</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <button class="btn btn-primary" id="btnTok" onclick="runTok()">Train Tokenizer</button>
+            </div>
+            <div class="terminal" id="term1"></div>
+        </div>
+
+        <!-- Step 2: Get Model (Train or Import) -->
+        <div class="step-content" id="step2">
+            <div class="main-header">
+                <h2 id="step2Title">Train Model</h2>
+                <p id="step2Desc">Train a GPT model with PyTorch on your NVIDIA GPU.</p>
+            </div>
+
+            <!-- Mode toggle -->
+            <div class="mode-toggle">
+                <button class="btn mode-btn active" id="modeTrainBtn" onclick="setTrainMode('train')">
+                    Train from Scratch
+                </button>
+                <button class="btn mode-btn" id="modeImportBtn" onclick="setTrainMode('import')">
+                    Import from HuggingFace
+                </button>
+            </div>
+
+            <!-- Train panel -->
+            <div id="trainModePanel">
+                <div class="config-panel" style="margin-top:16px;">
+                    <div class="config-field">
+                        <label>Depth</label>
+                        <select id="cfgDepth">
+                            <option value="4" selected>4 (tiny)</option>
+                            <option value="8">8 (small)</option>
+                            <option value="12">12 (medium)</option>
+                            <option value="16">16 (large)</option>
+                            <option value="20">20 (speedrun grade)</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>Iterations</label>
+                        <input type="number" id="cfgIter" value="-1" min="-1" step="10" title="-1 = auto-compute">
+                    </div>
+                    <div class="config-field">
+                        <label>Seq Length</label>
+                        <select id="cfgSeqLen">
+                            <option value="512">512</option>
+                            <option value="1024" selected>1024</option>
+                            <option value="2048">2048</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>Window</label>
+                        <select id="cfgWindow">
+                            <option value="L" selected>L (full)</option>
+                            <option value="SL">SL</option>
+                            <option value="SSSL">SSSL</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>Batch Size</label>
+                        <select id="cfgBatch" title="Reduce if you hit CUDA out-of-memory">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="4">4</option>
+                            <option value="8" selected>8</option>
+                            <option value="16">16</option>
+                            <option value="32">32</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>Total Batch</label>
+                        <select id="cfgTotalBatch" title="-1 = nanochat auto-computes the token batch">
+                            <option value="-1" selected>Auto</option>
+                            <option value="131072">131K tokens</option>
+                            <option value="262144">262K tokens</option>
+                            <option value="524288">524K tokens</option>
+                            <option value="1048576">1M tokens</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>Eval Every</label>
+                        <input type="number" id="cfgEvalEvery" value="100" min="-1" step="50">
+                    </div>
+                    <div class="config-field">
+                        <label>Save Every</label>
+                        <input type="number" id="cfgSaveEvery" value="500" min="-1" step="100">
+                    </div>
+                    <div class="toggle-field" style="align-self:flex-end;">
+                        <input type="checkbox" id="cfgNoCompile">
+                        <label for="cfgNoCompile" title="Skip torch.compile (slower but more compatible)">Disable torch.compile</label>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px;">
+                    <button class="btn btn-primary" id="btnTrain" onclick="runTrain()">Start Training</button>
+                    <button class="btn btn-danger" id="btnTrainStop" onclick="stopProcess()" style="display:none;">Stop</button>
+                </div>
+                <div class="stats-bar" id="trainStats" style="display:none;">
+                    <div class="stat"><span class="stat-label">Step</span><span class="stat-value" id="statStep">—</span></div>
+                    <div class="stat"><span class="stat-label">Loss</span><span class="stat-value" id="statLoss">—</span></div>
+                    <div class="stat"><span class="stat-label">Tok/s</span><span class="stat-value" id="statTok">—</span></div>
+                    <div class="stat"><span class="stat-label">ETA</span><span class="stat-value" id="statEta">—</span></div>
+                </div>
+                <div class="chart-container" id="chartBox" style="display:none;">
+                    <div class="chart-title">Training Loss</div>
+                    <canvas id="lossChart" height="220"></canvas>
+                </div>
+                <span class="terminal-toggle" onclick="toggleTerminal('term2')">Show/hide terminal output</span>
+                <div class="terminal" id="term2" style="display:none;"></div>
+            </div>
+
+            <!-- Import panel -->
+            <div id="importModePanel" style="display:none;">
+                <div class="config-panel" style="margin-top:16px;">
+                    <div class="config-field">
+                        <label>HuggingFace Repo</label>
+                        <input type="text" id="cfgImportRepo" value="nanochat-students/base-d20"
+                            style="min-width:260px;">
+                    </div>
+                    <div class="toggle-field" style="align-self:flex-end;">
+                        <input type="checkbox" id="cfgImportForce">
+                        <label for="cfgImportForce">Overwrite tokenizer</label>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px;">
+                    <button class="btn btn-primary" id="btnImport" onclick="runImport()">Import Model</button>
+                    <button class="btn btn-danger" id="btnImportStop" onclick="stopProcess()" style="display:none;">Stop</button>
+                </div>
+                <div class="terminal" id="termImport" style="margin-top:16px;"></div>
+            </div>
+        </div>
+
+        <!-- Step 3: Fine-Tune (SFT) -->
+        <div class="step-content" id="step3">
+            <div class="main-header">
+                <h2>Fine-Tune (SFT)</h2>
+                <p>Supervised fine-tuning on conversation data to create a chat model.</p>
+            </div>
+            <div class="config-panel">
+                <div class="config-field">
+                    <label>Base Model</label>
+                    <select id="cfgSftBase"><option value="">No base models</option></select>
+                </div>
+                <div class="config-field">
+                    <label>Iterations</label>
+                    <input type="number" id="cfgSftIter" value="-1" min="-1" step="10" title="-1 = full epoch">
+                </div>
+                <div class="config-field">
+                    <label>Batch Size</label>
+                    <select id="cfgSftBatch" title="Reduce if you hit CUDA out-of-memory">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="4" selected>4</option>
+                        <option value="8">8</option>
+                        <option value="16">16</option>
+                        <option value="32">32</option>
+                    </select>
+                </div>
+                <div class="config-field">
+                    <label>Total Batch</label>
+                    <select id="cfgSftTotalBatch" title="-1 = inherit from the base checkpoint">
+                        <option value="-1" selected>Inherit</option>
+                        <option value="131072">131K tokens</option>
+                        <option value="262144">262K tokens</option>
+                        <option value="524288">524K tokens</option>
+                    </select>
+                </div>
+                <div class="config-field">
+                    <label>Eval Every</label>
+                    <input type="number" id="cfgSftEvalEvery" value="100" min="-1" step="50">
+                </div>
+                <div class="toggle-field" style="align-self:flex-end;">
+                    <input type="checkbox" id="cfgSftNoCompile">
+                    <label for="cfgSftNoCompile" title="Skip torch.compile (slower but more compatible)">Disable torch.compile</label>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-primary" id="btnSft" onclick="runSft()">Start Fine-Tuning</button>
+                <button class="btn btn-danger" id="btnSftStop" onclick="stopProcess()" style="display:none;">Stop</button>
+            </div>
+            <div class="stats-bar" id="sftStats" style="display:none;">
+                <div class="stat"><span class="stat-label">Step</span><span class="stat-value" id="sftStatStep">—</span></div>
+                <div class="stat"><span class="stat-label">Loss</span><span class="stat-value" id="sftStatLoss">—</span></div>
+                <div class="stat"><span class="stat-label">Tok/s</span><span class="stat-value" id="sftStatTok">—</span></div>
+                <div class="stat"><span class="stat-label">Progress</span><span class="stat-value" id="sftStatProgress">—</span></div>
+            </div>
+            <div class="chart-container" id="sftChartBox" style="display:none;">
+                <div class="chart-title">SFT Training Loss</div>
+                <canvas id="sftLossChart" height="220"></canvas>
+            </div>
+            <span class="terminal-toggle" onclick="toggleTerminal('term3')">Show/hide terminal output</span>
+            <div class="terminal" id="term3" style="display:none;"></div>
+        </div>
+
+        <!-- Step 4: Chat -->
+        <div class="step-content" id="step4">
+            <div class="main-header">
+                <h2>Chat</h2>
+                <p>Load a trained checkpoint and chat with your model.</p>
+            </div>
+            <div class="config-panel">
+                <div class="config-field">
+                    <label>Checkpoint</label>
+                    <select id="cfgCheckpoint"><option value="">Loading...</option></select>
+                </div>
+                <div style="align-self:flex-end;display:flex;gap:8px;">
+                    <button class="btn btn-primary" id="btnLoad" onclick="loadModel()">Load Model</button>
+                    <button class="btn btn-secondary" id="btnUnload" onclick="unloadModel()" style="display:none;">Unload</button>
+                </div>
+                <div id="loadStatus" class="inline-status"></div>
+            </div>
+            <div class="chat-area" id="chatArea">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="empty-state" id="chatEmpty">Load a model to start chatting.</div>
+                </div>
+                <div class="chat-params">
+                    <label>Temp</label>
+                    <input type="range" id="chatTemp" min="0" max="2" step="0.1" value="0.8">
+                    <span id="chatTempVal">0.8</span>
+                    <label style="margin-left:12px;">Top-K</label>
+                    <input type="range" id="chatTopK" min="0" max="200" step="5" value="50">
+                    <span id="chatTopKVal">50</span>
+                </div>
+                <div class="chat-input-bar">
+                    <textarea id="chatInput" rows="1" placeholder="Type a message..." onkeydown="chatKeyDown(event)"></textarea>
+                    <button class="btn-clear" id="chatClear" onclick="clearChat()">Clear</button>
+                    <button id="chatSend" onclick="sendChat()" disabled>Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const NUM_STEPS = 5;
+let currentStep = 0;
+const stepDone = [false, false, false, false, false];
+const artifactReady = [false, false, false, false, false];
+let isRunning = false;
+let serverRunning = false;
+let runningStep = null;  // which step is currently running (2 or 3)
+let trainStartTime = null;
+const lossData = [];
+const sftLossData = [];
+let sftStartTime = null;
+let chatMessages = [];
+let chatGenerating = false;
+let modelLoaded = false;
+const PROGRESS_KEY = 'nanochatCudaQuickstartProgress';
+const THEME_KEY = 'nanochatCudaQuickstartTheme';
+let progressLoaded = false;
+let statusPollTimer = null;
+
+function loadProgress() {
+    try {
+        const raw = localStorage.getItem(PROGRESS_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!Array.isArray(saved) || saved.length !== NUM_STEPS) return;
+        for (let i = 0; i < NUM_STEPS; i++) stepDone[i] = !!saved[i];
+        progressLoaded = true;
+    } catch(e) {}
+}
+
+function saveProgress() {
+    try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(stepDone)); } catch(e) {}
+}
+
+loadProgress();
+
+function cssVar(name, fallback = '') {
+    const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+    return value || fallback;
+}
+
+function redrawCharts() {
+    if (lossData.length > 1) drawLossChart('lossChart', lossData);
+    if (sftLossData.length > 1) drawLossChart('sftLossChart', sftLossData);
+}
+
+function applyTheme(theme) {
+    const dark = theme === 'dark';
+    document.body.classList.toggle('dark', dark);
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = dark ? 'Light Mode' : 'Dark Mode';
+    redrawCharts();
+}
+
+function initTheme() {
+    let theme = 'light';
+    try {
+        const saved = localStorage.getItem(THEME_KEY);
+        if (saved === 'dark' || saved === 'light') {
+            theme = saved;
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            theme = 'dark';
+        }
+    } catch(e) {}
+    applyTheme(theme);
+}
+
+function toggleTheme() {
+    const next = document.body.classList.contains('dark') ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, next); } catch(e) {}
+    applyTheme(next);
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+initTheme();
+fetchStatus();
+
+document.getElementById('chatTemp').oninput = e => {
+    document.getElementById('chatTempVal').textContent = e.target.value;
+};
+document.getElementById('chatTopK').oninput = e => {
+    document.getElementById('chatTopKVal').textContent = e.target.value;
+};
+document.getElementById('chatInput').oninput = function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    document.getElementById('chatSend').disabled = !this.value.trim() || chatGenerating || !modelLoaded;
+};
+
+// ─── Status ──────────────────────────────────────────────────────────────────
+function applyStatus(s) {
+    if (s.device) {
+        const gb = s.device.vram_total_mib ? ` · ${Math.round(s.device.vram_total_mib / 1024)} GB` : '';
+        document.getElementById('gpuInfo').textContent = s.device.name + gb;
+    }
+    artifactReady[0] = !!s.data;
+    artifactReady[1] = !!s.tokenizer;
+    artifactReady[2] = !!s.train && Object.keys(s.train).length > 0;
+    artifactReady[3] = !!s.sft && Object.keys(s.sft).length > 0;
+    artifactReady[4] = artifactReady[2] || artifactReady[3];
+
+    if (!progressLoaded) {
+        for (let i = 0; i < NUM_STEPS; i++) stepDone[i] = i === 4 ? !!s.chat : artifactReady[i];
+        progressLoaded = true;
+        saveProgress();
+    }
+
+    modelLoaded = !!s.chat;
+    serverRunning = !!s.running;
+    document.getElementById('btnUnload').style.display = modelLoaded ? '' : 'none';
+
+    const empty = document.getElementById('chatEmpty');
+    if (modelLoaded) {
+        if (empty) empty.style.display = 'none';
+        document.getElementById('chatSend').disabled = !document.getElementById('chatInput').value.trim();
+        if (s.chat_model) {
+            const srcLabel = s.chat_model.source === 'sft' ? ' SFT' : '';
+            document.getElementById('loadStatus').textContent = `Loaded d${s.chat_model.depth}${srcLabel} step ${s.chat_model.step}`;
+        }
+    } else {
+        if (empty) empty.style.display = '';
+        document.getElementById('chatSend').disabled = true;
+        if (document.getElementById('loadStatus').textContent.startsWith('Loaded d')) {
+            document.getElementById('loadStatus').textContent = '';
+        }
+    }
+
+    updateNav();
+    setProcessControlsDisabled(isRunning || serverRunning);
+    if (serverRunning && !isRunning) scheduleStatusPoll();
+}
+
+function scheduleStatusPoll() {
+    if (statusPollTimer) return;
+    statusPollTimer = setTimeout(async () => {
+        statusPollTimer = null;
+        await fetchStatus();
+    }, 3000);
+}
+
+async function fetchStatus() {
+    try {
+        const r = await fetch('/status');
+        const s = await r.json();
+        applyStatus(s);
+    } catch(e) { console.error(e); }
+    await Promise.all([loadCheckpoints(), loadSftBaseModels()]);
+}
+
+async function refreshAfterStage(nextStep = null) {
+    await fetchStatus();
+    if (nextStep !== null && canAccess(nextStep)) goStep(nextStep);
+}
+
+// ─── Navigation ──────────────────────────────────────────────────────────────
+// Prerequisites: step 0=none, 1=0, 2=1, 3=2, 4=2 (SFT is optional for Chat)
+const STEP_PREREQS = [[], [0], [], [2], [2]];
+
+function canAccess(idx) {
+    return STEP_PREREQS[idx].every(p => artifactReady[p]);
+}
+
+function goStep(idx) {
+    if (!canAccess(idx)) return;
+    currentStep = idx;
+    document.querySelectorAll('.step-content').forEach((el, i) => {
+        el.classList.toggle('visible', i === idx);
+    });
+    updateNav();
+}
+
+function updateNav() {
+    document.querySelectorAll('.step-item').forEach((el, i) => {
+        el.classList.remove('active', 'locked');
+        if (i === currentStep) el.classList.add('active');
+        else if (!canAccess(i)) el.classList.add('locked');
+    });
+    for (let i = 0; i < NUM_STEPS; i++) {
+        const icon = document.getElementById('icon' + i);
+        icon.className = 'step-icon';
+        icon.textContent = '';
+        if (runningStep === i) {
+            icon.classList.add('running');
+        } else if (stepDone[i]) {
+            icon.classList.add('done');
+            icon.innerHTML = '&#10003;';
+        } else if (artifactReady[i]) {
+            icon.classList.add('available');
+            icon.innerHTML = '&bull;';
+        }
+    }
+}
+
+function markDone(idx) {
+    stepDone[idx] = true;
+    saveProgress();
+    updateNav();
+}
+
+function resetUiProgress() {
+    for (let i = 0; i < NUM_STEPS; i++) stepDone[i] = false;
+    lossData.length = 0;
+    sftLossData.length = 0;
+    saveProgress();
+    updateNav();
+}
+
+// ─── Terminal helpers ────────────────────────────────────────────────────────
+const TERM_MAX_LINES = 500;
+
+function appendTerm(id, text) {
+    const el = document.getElementById(id);
+    el.textContent += text + '\n';
+    const lines = el.textContent.split('\n');
+    if (lines.length > TERM_MAX_LINES) {
+        el.textContent = lines.slice(-TERM_MAX_LINES).join('\n');
+    }
+    el.scrollTop = el.scrollHeight;
+}
+
+function clearTerm(id) {
+    document.getElementById(id).textContent = '';
+}
+
+function toggleTerminal(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+const PROCESS_START_BUTTONS = ['btnData', 'btnTok', 'btnTrain', 'btnImport', 'btnSft', 'btnLoad'];
+
+function setProcessControlsDisabled(disabled) {
+    for (const id of PROCESS_START_BUTTONS) {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !!disabled;
+    }
+}
+
+function canStartProcess(termId) {
+    if (isRunning || serverRunning) {
+        appendTerm(termId, '!! Another process is already running. Stop it first.');
+        return false;
+    }
+    return true;
+}
+
+// ─── SSE runner ──────────────────────────────────────────────────────────────
+function runSSE(url, termId, { onMetric, onDone, onError } = {}) {
+    isRunning = true;
+    serverRunning = true;
+    setProcessControlsDisabled(true);
+    clearTerm(termId);
+    const es = new EventSource(url);
+    es.onmessage = (e) => {
+        let d;
+        try {
+            d = JSON.parse(e.data);
+        } catch(err) {
+            appendTerm(termId, '!! Ignored malformed server event.');
+            return;
+        }
+        if (d.type === 'output') appendTerm(termId, d.text);
+        if (d.type === 'metric' && onMetric) onMetric(d);
+        if (d.type === 'done') {
+            isRunning = false; serverRunning = false; setProcessControlsDisabled(false);
+            es.close(); if (onDone) onDone();
+        }
+        if (d.type === 'error') {
+            isRunning = false; serverRunning = false; setProcessControlsDisabled(false);
+            es.close(); if (onError) onError(d.text); appendTerm(termId, '!! ' + d.text);
+        }
+    };
+    es.onerror = () => {
+        isRunning = false; serverRunning = false; setProcessControlsDisabled(false);
+        es.close(); if (onError) onError('Connection lost');
+    };
+    return es;
+}
+
+// ─── Step 0: Data ────────────────────────────────────────────────────────────
+function runData() {
+    const n = document.getElementById('cfgShards').value;
+    if (!canStartProcess('term0')) return;
+    const btn = document.getElementById('btnData');
+    btn.disabled = true;
+    setIconRunning(0);
+    runningStep = 0;
+    runSSE(`/run/data?n_shards=${n}`, 'term0', {
+        onDone: async () => { btn.disabled = false; markDone(0); clearIconRunning(0); await refreshAfterStage(1); },
+        onError: () => { btn.disabled = false; clearIconRunning(0); },
+    });
+}
+
+// ─── Step 1: Tokenizer ──────────────────────────────────────────────────────
+function runTok() {
+    const btn = document.getElementById('btnTok');
+    const maxChars = document.getElementById('cfgTokChars').value;
+    if (!canStartProcess('term1')) return;
+    btn.disabled = true;
+    setIconRunning(1);
+    runningStep = 1;
+    runSSE(`/run/tokenizer?max_chars=${maxChars}`, 'term1', {
+        onDone: async () => { btn.disabled = false; markDone(1); clearIconRunning(1); await refreshAfterStage(2); },
+        onError: () => { btn.disabled = false; clearIconRunning(1); },
+    });
+}
+
+// ─── Step 2: Mode Toggle ─────────────────────────────────────────────────────
+let trainMode = 'train';
+
+function setTrainMode(mode) {
+    trainMode = mode;
+    document.getElementById('trainModePanel').style.display = mode === 'train' ? '' : 'none';
+    document.getElementById('importModePanel').style.display = mode === 'import' ? '' : 'none';
+    document.getElementById('modeTrainBtn').classList.toggle('active', mode === 'train');
+    document.getElementById('modeImportBtn').classList.toggle('active', mode === 'import');
+    document.getElementById('step2Title').textContent = mode === 'train' ? 'Train Model' : 'Import from HuggingFace';
+    document.getElementById('step2Desc').textContent = mode === 'train'
+        ? 'Train a GPT model with PyTorch on your NVIDIA GPU.'
+        : 'Download a pretrained nanochat checkpoint from HuggingFace (no conversion needed).';
+}
+
+// ─── Step 2a: Import ─────────────────────────────────────────────────────────
+let importES = null;
+
+function runImport() {
+    const repo = document.getElementById('cfgImportRepo').value.trim();
+    if (!repo) return;
+    if (!canStartProcess('termImport')) return;
+    const force = document.getElementById('cfgImportForce').checked;
+
+    const params = new URLSearchParams({
+        repo, force_tokenizer: force,
+    });
+
+    document.getElementById('btnImport').style.display = 'none';
+    document.getElementById('btnImportStop').style.display = '';
+    setIconRunning(2);
+    runningStep = 2;
+
+    importES = runSSE(`/run/import?${params}`, 'termImport', {
+        onDone: async () => { markDone(2); importDone(); await refreshAfterStage(3); },
+        onError: () => { importDone(); },
+    });
+}
+
+function importDone() {
+    runningStep = null;
+    document.getElementById('btnImport').style.display = '';
+    document.getElementById('btnImportStop').style.display = 'none';
+    clearIconRunning(2);
+}
+
+// ─── Step 2b: Train ─────────────────────────────────────────────────────────
+let trainES = null;
+
+function runTrain() {
+    if (!artifactReady[0] || !artifactReady[1]) {
+        document.getElementById('term2').style.display = 'block';
+        appendTerm('term2', '!! Training requires data and tokenizer. Complete steps 1 & 2 first, or use "Import from HuggingFace" instead.');
+        return;
+    }
+    if (!canStartProcess('term2')) return;
+    const depth = document.getElementById('cfgDepth').value;
+    const iter = document.getElementById('cfgIter').value;
+    const seqLen = document.getElementById('cfgSeqLen').value;
+    const win = document.getElementById('cfgWindow').value;
+    const batch = document.getElementById('cfgBatch').value;
+    const totalBatch = document.getElementById('cfgTotalBatch').value;
+    const evalEvery = document.getElementById('cfgEvalEvery').value;
+    const saveEvery = document.getElementById('cfgSaveEvery').value;
+    const noCompile = document.getElementById('cfgNoCompile').checked;
+
+    const params = new URLSearchParams({
+        depth, num_iterations: iter, max_seq_len: seqLen,
+        window_pattern: win, device_batch_size: batch,
+        total_batch_size: totalBatch, eval_every: evalEvery,
+        save_every: saveEvery, disable_compile: noCompile,
+    });
+
+    lossData.length = 0;
+    trainStartTime = Date.now();
+
+    document.getElementById('btnTrain').style.display = 'none';
+    document.getElementById('btnTrainStop').style.display = '';
+    document.getElementById('trainStats').style.display = '';
+    document.getElementById('chartBox').style.display = '';
+    document.getElementById('term2').style.display = 'block';
+    setIconRunning(2);
+    runningStep = 2;
+
+    trainES = runSSE(`/run/train?${params}`, 'term2', {
+        onMetric: (m) => {
+            document.getElementById('statStep').textContent = `${m.step}/${m.total}`;
+            document.getElementById('statLoss').textContent = Number.isFinite(m.loss) ? m.loss.toFixed(4) : String(m.loss);
+            document.getElementById('statTok').textContent = m.tok_per_sec.toLocaleString();
+            const elapsed = (Date.now() - trainStartTime) / 1000;
+            const pct = m.step / m.total;
+            if (pct > 0.01) {
+                const eta = (elapsed / pct) * (1 - pct);
+                document.getElementById('statEta').textContent = formatTime(eta);
+            }
+            if (Number.isFinite(m.loss)) {
+                lossData.push({ step: m.step, loss: m.loss });
+                scheduleChartDraw('lossChart', lossData);
+            }
+        },
+        onDone: async () => { markDone(2); trainDone(); await refreshAfterStage(3); },
+        onError: () => { trainDone(); },
+    });
+}
+
+function trainDone() {
+    runningStep = null;
+    document.getElementById('btnTrain').style.display = '';
+    document.getElementById('btnTrainStop').style.display = 'none';
+    clearIconRunning(2);
+}
+
+// ─── Step 3: Fine-Tune (SFT) ────────────────────────────────────────────────
+let sftES = null;
+
+async function loadSftBaseModels() {
+    try {
+        const r = await fetch('/checkpoints');
+        const list = await r.json();
+        const sel = document.getElementById('cfgSftBase');
+        const previous = sel.value;
+        sel.innerHTML = '';
+        const baseModels = list.filter(c => c.source === 'base');
+        if (baseModels.length === 0) {
+            sel.innerHTML = '<option value="">No base models found</option>';
+            return;
+        }
+        let hasPrevious = false;
+        for (const c of baseModels) {
+            const opt = document.createElement('option');
+            opt.value = `${c.depth}:${c.step}`;
+            opt.textContent = `d${c.depth} step ${c.step} (${c.n_embd}d, ${c.window_pattern})`;
+            if (opt.value === previous) hasPrevious = true;
+            sel.appendChild(opt);
+        }
+        if (hasPrevious) sel.value = previous;
+    } catch(e) { console.error(e); }
+}
+
+function runSft() {
+    const baseVal = document.getElementById('cfgSftBase').value;
+    if (!baseVal) return;
+    if (!canStartProcess('term3')) return;
+    const [depth, step] = baseVal.split(':');
+    const iter = document.getElementById('cfgSftIter').value;
+    const batch = document.getElementById('cfgSftBatch').value;
+    const totalBatch = document.getElementById('cfgSftTotalBatch').value;
+    const evalEvery = document.getElementById('cfgSftEvalEvery').value;
+    const noCompile = document.getElementById('cfgSftNoCompile').checked;
+
+    const params = new URLSearchParams({
+        depth, num_iterations: iter, device_batch_size: batch,
+        total_batch_size: totalBatch, eval_every: evalEvery,
+        disable_compile: noCompile,
+    });
+    if (step) params.set('step', step);
+
+    sftLossData.length = 0;
+    sftStartTime = Date.now();
+
+    document.getElementById('btnSft').style.display = 'none';
+    document.getElementById('btnSftStop').style.display = '';
+    document.getElementById('sftStats').style.display = '';
+    document.getElementById('sftChartBox').style.display = '';
+    document.getElementById('term3').style.display = 'block';
+    setIconRunning(3);
+    runningStep = 3;
+
+    sftES = runSSE(`/run/sft?${params}`, 'term3', {
+        onMetric: (m) => {
+            document.getElementById('sftStatStep').textContent = `${m.step}/${m.total}`;
+            document.getElementById('sftStatLoss').textContent = Number.isFinite(m.loss) ? m.loss.toFixed(4) : String(m.loss);
+            document.getElementById('sftStatTok').textContent = m.tok_per_sec.toLocaleString();
+            const pct = m.total > 0 ? (100 * m.step / m.total).toFixed(1) : '?';
+            document.getElementById('sftStatProgress').textContent = `${pct}%`;
+            if (Number.isFinite(m.loss)) {
+                sftLossData.push({ step: m.step, loss: m.loss });
+                scheduleChartDraw('sftLossChart', sftLossData);
+            }
+        },
+        onDone: async () => { markDone(3); sftDone(); await refreshAfterStage(4); },
+        onError: () => { sftDone(); },
+    });
+}
+
+function sftDone() {
+    runningStep = null;
+    document.getElementById('btnSft').style.display = '';
+    document.getElementById('btnSftStop').style.display = 'none';
+    clearIconRunning(3);
+}
+
+async function stopProcess() {
+    const stoppedStep = runningStep;
+    await fetch('/stop', { method: 'POST' });
+    isRunning = false;
+    serverRunning = false;
+    setProcessControlsDisabled(false);
+    if (trainES) { trainES.close(); trainES = null; }
+    if (importES) { importES.close(); importES = null; }
+    if (sftES) { sftES.close(); sftES = null; }
+    if (runningStep === 2) { trainDone(); importDone(); }
+    else if (runningStep === 3) sftDone();
+    else { trainDone(); importDone(); sftDone(); }
+    if (stoppedStep !== null) clearIconRunning(stoppedStep);
+    runningStep = null;
+}
+
+function formatTime(s) {
+    if (s < 60) return Math.round(s) + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    return (s / 3600).toFixed(1) + 'h';
+}
+
+// ─── Loss Chart (shared) ─────────────────────────────────────────────────────
+const LOSS_DATA_MAX = 500;
+let chartPending = {};
+
+function scheduleChartDraw(canvasId, data) {
+    if (chartPending[canvasId]) return;
+    chartPending[canvasId] = true;
+    requestAnimationFrame(() => { chartPending[canvasId] = false; drawLossChart(canvasId, data); });
+}
+
+function drawLossChart(canvasId, data) {
+    const canvas = document.getElementById(canvasId);
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+
+    ctx.clearRect(0, 0, W, H);
+    if (data.length < 2) return;
+
+    let plotData = data;
+    if (data.length > LOSS_DATA_MAX) {
+        const stride = Math.ceil(data.length / LOSS_DATA_MAX);
+        plotData = [];
+        for (let i = 0; i < data.length; i += stride) plotData.push(data[i]);
+        if (plotData[plotData.length - 1] !== data[data.length - 1])
+            plotData.push(data[data.length - 1]);
+    }
+
+    const pad = { l: 50, r: 16, t: 8, b: 28 };
+    const gw = W - pad.l - pad.r;
+    const gh = H - pad.t - pad.b;
+
+    const xMin = plotData[0].step, xMax = plotData[plotData.length - 1].step;
+    let yMin = Infinity, yMax = -Infinity;
+    for (const d of plotData) { yMin = Math.min(yMin, d.loss); yMax = Math.max(yMax, d.loss); }
+    const yPad = (yMax - yMin) * 0.1 || 0.5;
+    yMin -= yPad; yMax += yPad;
+
+    const toX = s => pad.l + ((s - xMin) / (xMax - xMin || 1)) * gw;
+    const toY = l => pad.t + (1 - (l - yMin) / (yMax - yMin || 1)) * gh;
+
+    // Grid
+    ctx.strokeStyle = cssVar('--canvas-grid', '#e8e8e7'); ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+        const y = pad.t + (gh * i / 4);
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    }
+
+    // Y labels
+    ctx.fillStyle = cssVar('--text-muted', '#86868b'); ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+        const val = yMax - (yMax - yMin) * i / 4;
+        ctx.fillText(val.toFixed(2), pad.l - 6, pad.t + (gh * i / 4) + 3);
+    }
+
+    // X labels
+    ctx.textAlign = 'center';
+    const xSteps = Math.min(5, plotData.length);
+    for (let i = 0; i <= xSteps; i++) {
+        const s = xMin + (xMax - xMin) * i / xSteps;
+        ctx.fillText(Math.round(s), toX(s), H - 6);
+    }
+
+    // Line
+    ctx.strokeStyle = cssVar('--primary', '#007AFF'); ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < plotData.length; i++) {
+        const x = toX(plotData[i].step), y = toY(plotData[i].loss);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Current point
+    const last = plotData[plotData.length - 1];
+    ctx.fillStyle = cssVar('--primary', '#007AFF');
+    ctx.beginPath(); ctx.arc(toX(last.step), toY(last.loss), 3, 0, Math.PI * 2); ctx.fill();
+}
+
+// ─── Step 4: Chat ────────────────────────────────────────────────────────────
+async function loadCheckpoints() {
+    try {
+        const r = await fetch('/checkpoints');
+        const list = await r.json();
+        const sel = document.getElementById('cfgCheckpoint');
+        const previous = sel.value;
+        sel.innerHTML = '';
+        if (list.length === 0) {
+            sel.innerHTML = '<option value="">No checkpoints found</option>';
+            return;
+        }
+        let hasPrevious = false;
+        for (const c of list) {
+            const opt = document.createElement('option');
+            opt.value = `${c.depth}:${c.step}:${c.source}`;
+            const label = c.source === 'sft'
+                ? `d${c.depth} SFT step ${c.step} (${c.n_embd}d, ${c.window_pattern})`
+                : `d${c.depth} step ${c.step} (${c.n_embd}d, ${c.window_pattern})`;
+            opt.textContent = label;
+            if (opt.value === previous) hasPrevious = true;
+            sel.appendChild(opt);
+        }
+        if (hasPrevious) sel.value = previous;
+    } catch(e) { console.error(e); }
+}
+
+async function loadModel() {
+    const sel = document.getElementById('cfgCheckpoint').value;
+    if (!sel) return;
+    if (isRunning || serverRunning) return;
+    const parts = sel.split(':');
+    const depth = parseInt(parts[0]);
+    const step = parseInt(parts[1]);
+    const source = parts[2] || 'base';
+
+    const btn = document.getElementById('btnLoad');
+    const status = document.getElementById('loadStatus');
+    btn.disabled = true;
+    status.textContent = 'Loading model...';
+
+    try {
+        const r = await fetch('/chat/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ depth, step, source }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        modelLoaded = true;
+        markDone(4);
+        const srcLabel = source === 'sft' ? ' SFT' : '';
+        status.textContent = `Loaded d${depth}${srcLabel} step ${step}`;
+        document.getElementById('chatEmpty').style.display = 'none';
+        document.getElementById('chatSend').disabled = !document.getElementById('chatInput').value.trim();
+        document.getElementById('btnUnload').style.display = '';
+        await fetchStatus();
+    } catch(e) {
+        status.textContent = 'Error: ' + e.message;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function unloadModel() {
+    try {
+        await fetch('/chat/unload', { method: 'POST' });
+        modelLoaded = false;
+        document.getElementById('chatSend').disabled = true;
+        document.getElementById('loadStatus').textContent = 'Model unloaded (memory freed)';
+        await fetchStatus();
+    } catch(e) { console.error(e); }
+}
+
+function chatKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+}
+
+function clearChat() {
+    if (chatGenerating) return;
+    chatMessages = [];
+    const msgs = document.getElementById('chatMessages');
+    msgs.innerHTML = '<div class="empty-state" id="chatEmpty">Load a model to start chatting.</div>';
+    if (modelLoaded) document.getElementById('chatEmpty').textContent = 'Chat cleared. Type a message to begin.';
+}
+
+async function sendChat() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || chatGenerating || !modelLoaded) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('chatSend').disabled = true;
+    chatGenerating = true;
+
+    chatMessages.push({ role: 'user', content: text });
+    addChatBubble('user', text);
+
+    const temp = parseFloat(document.getElementById('chatTemp').value);
+    const topk = parseInt(document.getElementById('chatTopK').value);
+
+    const assistantEl = addChatBubble('assistant', '');
+
+    try {
+        const r = await fetch('/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: chatMessages,
+                temperature: temp,
+                top_k: topk,
+                max_tokens: 256,
+            }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let full = '';
+        let pending = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
+            const events = pending.split('\n\n');
+            pending = events.pop();
+            for (const eventText of events) {
+                for (const line of eventText.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const d = JSON.parse(line.slice(6));
+                        if (d.token) { full += d.token; assistantEl.textContent = full; scrollChat(); }
+                    } catch(e) {}
+                }
+            }
+        }
+        pending += decoder.decode();
+        if (pending.trim()) {
+            for (const line of pending.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const d = JSON.parse(line.slice(6));
+                    if (d.token) { full += d.token; assistantEl.textContent = full; scrollChat(); }
+                } catch(e) {}
+            }
+        }
+        chatMessages.push({ role: 'assistant', content: full });
+    } catch(e) {
+        assistantEl.textContent = 'Error: ' + e.message;
+    } finally {
+        chatGenerating = false;
+        document.getElementById('chatSend').disabled = !document.getElementById('chatInput').value.trim();
+    }
+}
+
+function addChatBubble(role, text) {
+    const msgs = document.getElementById('chatMessages');
+    const empty = document.getElementById('chatEmpty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+    div.textContent = text;
+    msgs.appendChild(div);
+    scrollChat();
+    return div;
+}
+
+function scrollChat() {
+    const msgs = document.getElementById('chatMessages');
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+// ─── Icon helpers ────────────────────────────────────────────────────────────
+function setIconRunning(idx) {
+    const icon = document.getElementById('icon' + idx);
+    icon.className = 'step-icon running';
+    icon.innerHTML = '';
+}
+function clearIconRunning(idx) {
+    if (runningStep === idx) runningStep = null;
+    updateNav();
+}
+
+// Resize chart on window resize (debounced)
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        if (lossData.length > 1) drawLossChart('lossChart', lossData);
+        if (sftLossData.length > 1) drawLossChart('sftLossChart', sftLossData);
+    }, 200);
+});
+</script>
+</body>
+</html>
