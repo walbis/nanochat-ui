@@ -32,6 +32,27 @@ See [dev/LEADERBOARD.md](dev/LEADERBOARD.md) for more docs on how to interpret a
 This repo includes an additive CUDA/NVIDIA quickstart UI for running the nanochat
 pipeline from a browser without editing upstream nanochat code.
 
+What this UI adds:
+
+- A browser dashboard for CUDA/VRAM, artifacts, checkpoints, jobs, and chat workers.
+- The simple pipeline flow: data download, tokenizer training, base model train/import,
+  optional SFT, and chat.
+- Advanced UI panels for original nanochat CLI features: base training, SFT, eval,
+  RL, report generation, one-shot chat CLI, and run recipes.
+- A safe backend command registry that validates arguments and launches subprocesses
+  with argv lists, not shell strings.
+- A job manager with live SSE logs, parsed metrics, exit codes, and Windows process-tree
+  stop support.
+- An integrated `chat_web.py`-style worker pool for CUDA chat serving without starting
+  a second server.
+- Dark/light mode and per-page explanations of purpose, GPU/CPU usage, optionality,
+  and outputs.
+
+Original nanochat core files are left untouched. The UI/backend additions live in
+quickstart-specific files such as `scripts/quickstart.py`,
+`scripts/quickstart_commands.py`, `scripts/quickstart_jobs.py`,
+`scripts/quickstart_chat_workers.py`, and `nanochat/quickstart_ui.html`.
+
 On Windows PowerShell, first enter the repo directory. If you cloned this UI repo:
 
 ```powershell
