@@ -31,6 +31,9 @@
             --chat-assistant: #f0f7ff;
             --focus: #007AFF22;
             --canvas-grid: #e8e8e7;
+            --warning-bg: #fff7ed;
+            --warning-text: #9a3412;
+            --warning-border: #fed7aa;
         }
         body.dark {
             color-scheme: dark;
@@ -58,6 +61,9 @@
             --chat-assistant: #1d3144;
             --focus: #5aa9ff2b;
             --canvas-grid: #343942;
+            --warning-bg: #332416;
+            --warning-text: #fdba74;
+            --warning-border: #7c3f16;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; }
@@ -329,6 +335,21 @@
         .checkpoint-table th { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
         .checkpoint-table tr:last-child td { border-bottom: none; }
         .status-line { color: var(--text-muted); font-size: 13px; }
+        .info-panel {
+            background: var(--panel-soft); border: 1px solid var(--border); border-radius: 12px;
+            padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
+        }
+        .info-panel strong { color: var(--text); font-size: 14px; }
+        .info-panel p { color: var(--text-subtle); font-size: 13px; line-height: 1.55; }
+        .info-meta {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 8px 14px; color: var(--text-muted); font-size: 12px; line-height: 1.45;
+        }
+        .info-meta b { color: var(--text-subtle); }
+        .warning-panel {
+            background: var(--warning-bg); color: var(--warning-text); border: 1px solid var(--warning-border);
+            border-radius: 12px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -390,6 +411,15 @@
                 <h2>Download Data</h2>
                 <p>Download ClimbMix data shards for training (~100 MB each, plus the validation shard).</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Pretraining için gerekli ClimbMix parquet shard dosyalarını indirir. Bu aşama model çalıştırmaz; sadece veri hazırlar.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> Network + disk, GPU kullanmaz.</span>
+                    <span><b>Gerekli mi?</b> Sıfırdan eğitim için evet; hazır model import ediyorsan genelde hayır.</span>
+                    <span><b>Çıktı:</b> `base_data_climbmix` altında train/val shardları.</span>
+                </div>
+            </div>
             <div class="config-panel">
                 <div class="config-field">
                     <label>Shards</label>
@@ -415,6 +445,15 @@
                 <h2>Train Tokenizer</h2>
                 <p>Train a BPE tokenizer (vocab size 32768) on the downloaded data.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Metni modelin anlayacağı token id dizilerine çevirecek BPE tokenizer'ı eğitir. Bu, model eğitimi değildir.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> CPU + disk, GPU kullanmaz.</span>
+                    <span><b>Gerekli mi?</b> Sıfırdan eğitim için evet; uyumlu tokenizer içeren HF checkpoint import ediyorsan opsiyonel.</span>
+                    <span><b>Çıktı:</b> `tokenizer.pkl` ve `token_bytes.pt`.</span>
+                </div>
+            </div>
             <div class="config-panel">
                 <div class="config-field">
                     <label>Training Chars</label>
@@ -437,6 +476,15 @@
             <div class="main-header">
                 <h2 id="step2Title">Train Model</h2>
                 <p id="step2Desc">Train a GPT model with PyTorch on your NVIDIA GPU.</p>
+            </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Ya base GPT modelini sıfırdan eğitir ya da HuggingFace'den hazır nanochat checkpoint indirir. Chat modelinin temelini bu aşama oluşturur.</p>
+                <div class="info-meta">
+                    <span><b>Train:</b> CUDA varsa GPU kullanır; en ağır aşamadır.</span>
+                    <span><b>Import:</b> Network + disk işi, GPU kullanmaz.</span>
+                    <span><b>Çıktı:</b> `base_checkpoints/d...` altında base checkpoint.</span>
+                </div>
             </div>
 
             <!-- Mode toggle -->
@@ -561,6 +609,15 @@
                 <h2>Fine-Tune (SFT)</h2>
                 <p>Supervised fine-tuning on conversation data to create a chat model.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Base modeli konuşma formatına ve chat özel tokenlarına alıştırır. Teknik olarak opsiyonel, ama düzgün sohbet deneyimi için pratikte önerilir.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> GPU-heavy training.</span>
+                    <span><b>Gerekli mi?</b> Base eval için hayır; kaliteli chat için evet.</span>
+                    <span><b>Çıktı:</b> `chatsft_checkpoints` altında SFT checkpoint.</span>
+                </div>
+            </div>
             <div class="config-panel">
                 <div class="config-field">
                     <label>Base Model</label>
@@ -623,6 +680,15 @@
                 <h2>Chat</h2>
                 <p>Load a trained checkpoint and chat with your model.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Tek bir checkpoint'i bu quickstart process'i içinde yükler ve SSE streaming ile sohbet eder. Küçük testler için en basit chat yoludur.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> CUDA varsa inference GPU'da çalışır.</span>
+                    <span><b>Gerekli mi?</b> Modeli denemek için kullanılır; eğitim için gerekli değildir.</span>
+                    <span><b>Not:</b> Worker pool yüklüyse simple chat modeli ayrıca yüklenmez.</span>
+                </div>
+            </div>
             <div class="config-panel">
                 <div class="config-field">
                     <label>Checkpoint</label>
@@ -660,6 +726,15 @@
                 <h2>Dashboard</h2>
                 <p>Overview of CUDA, artifacts, checkpoints, running jobs, and chat workers.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>CUDA/VRAM durumunu, indirilen artifactleri, checkpoint sayılarını, aktif jobları ve chat worker durumunu tek yerde gösterir.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> Durum okur; GPU işi başlatmaz.</span>
+                    <span><b>Gerekli mi?</b> Zorunlu değil, kontrol panelidir.</span>
+                    <span><b>Ne zaman?</b> Bir iş başlatmadan önce VRAM ve aktif process kontrolü için.</span>
+                </div>
+            </div>
             <div class="dashboard-grid">
                 <div class="status-card"><h3>Device</h3><p id="dashDevice">-</p><small id="dashVram">-</small></div>
                 <div class="status-card"><h3>Data</h3><p id="dashData">-</p><small>Downloaded ClimbMix shards</small></div>
@@ -680,6 +755,15 @@
                 <h2>Advanced Train</h2>
                 <p>Run base training or full SFT with original nanochat CLI flags.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Basit wizard ayarlarının ötesine geçip upstream `base_train` ve `chat_sft` CLI bayraklarını UI'dan yönetir.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> GPU-heavy training.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; ileri ayar gerektiğinde kullanılır.</span>
+                    <span><b>Not:</b> Chat worker/simple model yüklüyken VRAM için engellenir.</span>
+                </div>
+            </div>
             <div class="command-panel" id="panelTrain" data-commands="base_train,chat_sft"></div>
         </div>
 
@@ -689,6 +773,15 @@
                 <h2>Evaluation</h2>
                 <p>Run tokenizer, base, and chat evaluation jobs.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Tokenizer sıkıştırmasını, base model CORE/BPB/sample metriklerini ve chat benchmark görevlerini ölçer; rapor üretme/resetleme de buradadır.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> `tok_eval` CPU; `base_eval`/`chat_eval` GPU kullanabilir.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; kalite ölçümü için.</span>
+                    <span><b>Çıktı:</b> Terminal logları ve nanochat report kayıtları.</span>
+                </div>
+            </div>
             <div class="command-panel" id="panelEval" data-commands="tok_eval,base_eval,chat_eval,report"></div>
         </div>
 
@@ -697,6 +790,15 @@
             <div class="main-header">
                 <h2>Chat Server</h2>
                 <p>Load a chat_web-style worker pool inside this quickstart server.</p>
+            </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Orijinal `chat_web.py` mantığına benzer worker pool'u tek quickstart portunun içine yükler. Çoklu GPU varsa chat isteklerini worker'lara dağıtır.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> CUDA inference; multi-GPU sadece CUDA.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; yoğun/çoklu chat için.</span>
+                    <span><b>Not:</b> Training/RL başlatmadan önce unload gerekir.</span>
+                </div>
             </div>
             <div class="config-panel">
                 <div class="config-field">
@@ -743,6 +845,15 @@
                 <h2>RL</h2>
                 <p>Run GSM8K reinforcement learning with original nanochat CLI flags.</p>
             </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>SFT checkpoint üstünde GSM8K matematik görevleriyle reinforcement learning yapar. Chat modelini daha ileri ayarlamak için kullanılan deneysel/ileri aşamadır.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> GPU-heavy training.</span>
+                    <span><b>Gerekli mi?</b> Tamamen opsiyonel; SFT sonrası kullanılır.</span>
+                    <span><b>Çıktı:</b> `chatrl_checkpoints` altında RL checkpoint.</span>
+                </div>
+            </div>
             <div class="command-panel" id="panelRl" data-commands="chat_rl"></div>
         </div>
 
@@ -751,6 +862,15 @@
             <div class="main-header">
                 <h2>Checkpoints</h2>
                 <p>Inspect base, SFT, and RL checkpoints discovered under NANOCHAT_BASE_DIR.</p>
+            </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Base, SFT ve RL checkpoint dosyalarını metadata ile listeler. Hangi model/tag/step'in yükleneceğini seçmeden önce kontrol etmek için kullanılır.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> Dosya/metadata okur, GPU kullanmaz.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel ama debug için faydalı.</span>
+                    <span><b>Kaynak:</b> `NANOCHAT_BASE_DIR` veya varsayılan nanochat cache.</span>
+                </div>
             </div>
             <div>
                 <button class="btn btn-secondary" onclick="loadCheckpointTable()">Refresh</button>
@@ -763,6 +883,15 @@
             <div class="main-header">
                 <h2>Recipes</h2>
                 <p>Launch original run scripts. Native Windows requires bash or WSL for .sh recipes.</p>
+            </div>
+            <div class="info-panel">
+                <strong>Ne işe yarar?</strong>
+                <p>Upstream `runs/*.sh` tariflerini UI'dan preview edip başlatır. Bunlar nanochat'in hazır çalışma senaryolarıdır.</p>
+                <div class="info-meta">
+                    <span><b>Çalışma:</b> Tarife bağlı; `speedrun` GPU, `runcpu` CPU/MPS.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; hazır deneyleri çalıştırmak için.</span>
+                    <span><b>Windows:</b> Bash veya WSL gerekir.</span>
+                </div>
             </div>
             <div class="command-panel" id="panelRecipes" data-commands="recipe_runcpu,recipe_speedrun,recipe_scaling_laws,recipe_miniseries"></div>
         </div>
@@ -790,6 +919,7 @@ let progressLoaded = false;
 let statusPollTimer = null;
 let capabilities = [];
 let capabilityById = {};
+let capabilitiesError = '';
 let panelState = {};
 let genericJobSources = {};
 
@@ -869,12 +999,20 @@ document.getElementById('chatInput').oninput = function() {
 async function initCapabilities() {
     try {
         const r = await fetch('/api/capabilities');
+        if (!r.ok) {
+            throw new Error(`/api/capabilities ${r.status}. Quickstart backend eski olabilir; server'ı yeniden başlatın.`);
+        }
         const data = await r.json();
-        capabilities = data.commands || [];
+        capabilities = Array.isArray(data.commands) ? data.commands : [];
         capabilityById = Object.fromEntries(capabilities.map(c => [c.id, c]));
+        capabilitiesError = capabilities.length ? '' : 'Backend command registry boş döndü. Quickstart server yeniden başlatılmalı olabilir.';
         document.querySelectorAll('.command-panel').forEach(renderCommandPanel);
     } catch(e) {
         console.error(e);
+        capabilities = [];
+        capabilityById = {};
+        capabilitiesError = e.message;
+        document.querySelectorAll('.command-panel').forEach(renderCommandPanel);
         appendTerm('dashboardLog', '!! Could not load CLI capabilities: ' + e.message);
     }
 }
@@ -883,8 +1021,12 @@ function renderCommandPanel(panel) {
     const panelId = panel.id;
     const commandIds = (panel.dataset.commands || '').split(',').map(s => s.trim()).filter(Boolean);
     const available = commandIds.map(id => capabilityById[id]).filter(Boolean);
+    if (capabilitiesError) {
+        panel.innerHTML = `<div class="warning-panel"><b>Command registry yüklenemedi.</b><br>${escapeHtml(capabilitiesError)}<br>PowerShell'de server'ı durdurup yeniden başlatın: <code>uv run --extra gpu python -m scripts.quickstart --port 8000</code></div>`;
+        return;
+    }
     if (available.length === 0) {
-        panel.innerHTML = '<div class="status-line">No commands available.</div>';
+        panel.innerHTML = `<div class="warning-panel"><b>Bu panel için komut bulunamadı.</b><br>Beklenen komutlar: <code>${escapeHtml(commandIds.join(', '))}</code>. Backend eski bir quickstart sürümüyle çalışıyor olabilir; server'ı yeniden başlatın.</div>`;
         return;
     }
     panelState[panelId] = { commandId: available[0].id, jobId: null };
