@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import gc
 import json
+import math
 import os
 import re
 import shutil
@@ -68,6 +69,12 @@ args = argparse.Namespace(port=8000, host="127.0.0.1")
 # --- Globals ---
 
 running_process: Optional[asyncio.subprocess.Process] = None
+# serializes the two GPU model-load endpoints (/chat/load and /api/chat/workers/load)
+# so two near-simultaneous loads can't both pass their guards and double-allocate VRAM
+gpu_load_lock = asyncio.Lock()
+# serializes the simple single-model chat endpoint; the worker-pool path has its
+# own queue, but a single loaded Engine should not serve concurrent generations.
+simple_chat_lock = asyncio.Lock()
 loaded_engine = None
 loaded_tokenizer = None
 loaded_model = None  # keep ref for explicit cleanup
@@ -88,6 +95,18 @@ SFT_METRIC_RE = re.compile(
     re.IGNORECASE,
 )
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _json_safe_loss(raw: str):
+    """float() the loss, but keep non-finite values as their string token.
+
+    json.dumps emits a bare NaN/Infinity for float('nan')/float('inf'), which is
+    invalid JSON and makes the browser's JSON.parse throw — silently dropping the
+    whole metric event. Returning the string keeps the SSE payload valid; the UI's
+    `Number.isFinite(loss) ? toFixed : String(loss)` guard renders it correctly.
+    """
+    value = float(raw)
+    return value if math.isfinite(value) else raw
 
 
 def get_base_dir():
@@ -237,7 +256,8 @@ def check_status():
         "chat": chat_ready,
         "chat_model": {"depth": loaded_depth, "step": loaded_step, "source": loaded_source} if chat_ready else None,
         "chat_workers": chat_worker_pool.health(),
-        "running": running_process is not None and running_process.returncode is None,
+        "running": (running_process is not None and running_process.returncode is None)
+                   or job_manager.has_active_job(),
         "device": get_gpu_info(),
     }
 
@@ -383,31 +403,36 @@ async def api_checkpoints():
 @app.post("/api/chat/workers/load")
 async def api_chat_workers_load(req: WorkerLoadRequest):
     validate_worker_load(req)
-    if running_process is not None and running_process.returncode is None:
-        raise HTTPException(status_code=409, detail="A legacy quickstart process is running. Stop it before loading chat workers.")
-    jobs = job_manager.list_jobs()
-    if any(job["status"] == "running" for job in jobs):
-        raise HTTPException(status_code=409, detail="A CLI job is running. Stop it before loading chat workers.")
-    if loaded_model is not None:
-        _unload_model()
-    try:
-        return await chat_worker_pool.load(
-            source=req.source,
-            model_tag=req.model_tag,
-            step=req.step,
-            num_gpus=req.num_gpus,
-            device_type=req.device_type,
-            temperature=req.temperature,
-            top_k=req.top_k,
-            max_tokens=req.max_tokens,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    async with gpu_load_lock:
+        if running_process is not None and running_process.returncode is None:
+            raise HTTPException(status_code=409, detail="A legacy quickstart process is running. Stop it before loading chat workers.")
+        if job_manager.has_active_job():
+            raise HTTPException(status_code=409, detail="A CLI job is running. Stop it before loading chat workers.")
+        if chat_worker_pool.loaded:
+            raise HTTPException(status_code=409, detail="Chat worker pool is already loaded. Unload it first.")
+        if loaded_model is not None:
+            _unload_model()
+        try:
+            return await chat_worker_pool.load(
+                source=req.source,
+                model_tag=req.model_tag,
+                step=req.step,
+                num_gpus=req.num_gpus,
+                device_type=req.device_type,
+                temperature=req.temperature,
+                top_k=req.top_k,
+                max_tokens=req.max_tokens,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/chat/workers/unload")
 async def api_chat_workers_unload():
-    return await chat_worker_pool.unload()
+    try:
+        return await chat_worker_pool.unload()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/chat/health")
@@ -492,6 +517,8 @@ async def run_stage(stage: str, n_shards: int = 4, depth: int = 4,
 
     if running_process is not None and running_process.returncode is None:
         raise HTTPException(status_code=409, detail="A process is already running")
+    if job_manager.has_active_job():
+        raise HTTPException(status_code=409, detail="A CLI job is running (see the advanced panels). Stop it first.")
     if stage in ("train", "sft") and chat_worker_pool.loaded:
         return sse_error_response("Unload the chat worker pool before starting training or SFT.")
 
@@ -600,7 +627,7 @@ async def run_stage(stage: str, n_shards: int = 4, depth: int = 4,
                 "type": "metric",
                 "step": int(m.group(1)),
                 "total": int(m.group(2)),
-                "loss": float(m.group(3)),
+                "loss": _json_safe_loss(m.group(3)),
                 "tok_per_sec": int(m.group(4).replace(",", "")),
             }
         m = SFT_METRIC_RE.search(line)
@@ -612,7 +639,7 @@ async def run_stage(stage: str, n_shards: int = 4, depth: int = 4,
                 "type": "metric",
                 "step": step_i,
                 "total": total,
-                "loss": float(m.group(3)),
+                "loss": _json_safe_loss(m.group(3)),
                 "tok_per_sec": int(m.group(4).replace(",", "")),
             }
         return None
@@ -682,7 +709,16 @@ async def run_stage(stage: str, n_shards: int = 4, depth: int = 4,
                 yield f"data: {json.dumps({'type': 'error', 'text': f'Process exited with code {code}', 'code': code})}\n\n"
 
         except asyncio.CancelledError:
-            _kill_process_tree(running_process)
+            # client disconnected: kill the child AND wait for it to actually exit
+            # before the finally clears running_process, so a subsequent /run or
+            # /chat/load can't start new GPU work on top of a still-dying child
+            proc = running_process
+            _kill_process_tree(proc)
+            if proc is not None and proc.returncode is None:
+                try:
+                    await asyncio.wait_for(asyncio.shield(proc.wait()), timeout=5.0)
+                except BaseException:
+                    pass
             raise
         finally:
             running_process = None
@@ -754,28 +790,31 @@ def _load_model_sync(depth, step, source):
 async def chat_load(req: LoadRequest):
     global loaded_engine, loaded_tokenizer, loaded_model, loaded_depth, loaded_step, loaded_source
 
-    if running_process is not None and running_process.returncode is None:
-        raise HTTPException(status_code=409, detail="A training/import process is running. Stop it before loading a chat model.")
-    if chat_worker_pool.loaded:
-        raise HTTPException(status_code=409, detail="Chat worker pool is loaded. Unload it before loading a simple chat model.")
+    async with gpu_load_lock:
+        if running_process is not None and running_process.returncode is None:
+            raise HTTPException(status_code=409, detail="A training/import process is running. Stop it before loading a chat model.")
+        if job_manager.has_active_job():
+            raise HTTPException(status_code=409, detail="A CLI job is running. Stop it before loading a chat model.")
+        if chat_worker_pool.loaded:
+            raise HTTPException(status_code=409, detail="Chat worker pool is loaded. Unload it before loading a simple chat model.")
 
-    # Free previous model first to avoid double memory usage
-    if loaded_model is not None:
-        _unload_model()
+        # Free previous model first to avoid double memory usage
+        if loaded_model is not None:
+            _unload_model()
 
-    try:
-        engine, tokenizer, model = await asyncio.to_thread(
-            _load_model_sync, req.depth, req.step, req.source
-        )
-        loaded_engine = engine
-        loaded_tokenizer = tokenizer
-        loaded_model = model
-        loaded_depth = req.depth
-        loaded_step = req.step
-        loaded_source = req.source
-        return {"status": "loaded", "depth": req.depth, "source": req.source}
-    except (FileNotFoundError, AssertionError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            engine, tokenizer, model = await asyncio.to_thread(
+                _load_model_sync, req.depth, req.step, req.source
+            )
+            loaded_engine = engine
+            loaded_tokenizer = tokenizer
+            loaded_model = model
+            loaded_depth = req.depth
+            loaded_step = req.step
+            loaded_source = req.source
+            return {"status": "loaded", "depth": req.depth, "source": req.source}
+        except (FileNotFoundError, AssertionError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/chat/unload")
@@ -862,27 +901,25 @@ async def chat_completions(request: ChatRequest):
     tokens.append(assistant_start)
 
     async def stream():
-        import random
+        from scripts.quickstart_chat_workers import aiter_engine_tokens
         accumulated = []
         last_clean = ""
-        for token_column, token_masks in engine.generate(
-            tokens, num_samples=1,
-            max_tokens=request.max_tokens,
-            temperature=request.temperature,
-            top_k=request.top_k if request.top_k > 0 else None,
-            seed=random.randint(0, 2**31 - 1),
-        ):
-            tok = token_column[0]
-            if tok == assistant_end or tok == bos_id:
-                break
-            accumulated.append(tok)
-            text = tokenizer.decode(accumulated)
-            if not text.endswith("�"):
-                new = text[len(last_clean):]
-                if new:
-                    yield f"data: {json.dumps({'token': new}, ensure_ascii=False)}\n\n"
-                    last_clean = text
-            await asyncio.sleep(0)  # let other requests breathe between tokens
+        async with simple_chat_lock:
+            async for tok in aiter_engine_tokens(
+                engine, tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                max_tokens=request.max_tokens,
+            ):
+                if tok == assistant_end or tok == bos_id:
+                    break
+                accumulated.append(tok)
+                text = tokenizer.decode(accumulated)
+                if not text.endswith("�"):
+                    new = text[len(last_clean):]
+                    if new:
+                        yield f"data: {json.dumps({'token': new}, ensure_ascii=False)}\n\n"
+                        last_clean = text
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")

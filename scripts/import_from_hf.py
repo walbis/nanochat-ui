@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -37,30 +38,60 @@ def resolve_files(repo):
     step, model_file = candidates[-1]
     meta_file = f"meta_{step:06d}.json"
     if meta_file not in files:
-        meta_matches = [f for f in files if re.match(r"meta_(\d+)\.json$", f)]
-        if not meta_matches:
+        # pick the meta whose step matches the chosen model, else the largest-step
+        # meta (numeric, not list order, so a multi-meta repo can't mismatch)
+        metas = []
+        for f in files:
+            mm = re.match(r"meta_(\d+)\.json$", f)
+            if mm:
+                metas.append((int(mm.group(1)), f))
+        if not metas:
             raise SystemExit(f"No meta_*.json found in {repo}. Files: {files}")
-        meta_file = meta_matches[-1]
+        metas.sort()
+        match = [f for s, f in metas if s == step]
+        meta_file = match[0] if match else metas[-1][1]
     has_tokenizer = "tokenizer.pkl" in files and "token_bytes.pt" in files
     return model_file, meta_file, step, has_tokenizer
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def install_tokenizer(repo, force=False):
     base_dir = get_base_dir()
     tok_dir = os.path.join(base_dir, "tokenizer")
     pkl_dst = os.path.join(tok_dir, "tokenizer.pkl")
-
-    if os.path.exists(pkl_dst) and not force:
-        print(f"Tokenizer already exists at {tok_dir}, keeping it (use --force to overwrite)")
-        return
+    tb_dst = os.path.join(tok_dir, "token_bytes.pt")
 
     print("Downloading tokenizer from HuggingFace...")
     pkl_src = hf_hub_download(repo, "tokenizer.pkl")
     tb_src = hf_hub_download(repo, "token_bytes.pt")
 
+    if os.path.exists(pkl_dst) and not force:
+        # NEVER silently keep or overwrite a tokenizer that doesn't match the
+        # imported model. A mismatch means correct-looking loads but garbage output.
+        # If the local tokenizer is identical, keep it; otherwise require the user
+        # to opt in via --force / "Overwrite tokenizer".
+        same_pkl = _sha256(pkl_src) == _sha256(pkl_dst)
+        same_token_bytes = os.path.exists(tb_dst) and _sha256(tb_src) == _sha256(tb_dst)
+        if same_pkl and same_token_bytes:
+            print(f"Local tokenizer already matches the imported model; keeping {tok_dir}")
+            return
+        raise SystemExit(
+            "A different local tokenizer already exists. Import stopped to avoid "
+            "silently breaking locally trained checkpoints. Re-run with --force "
+            "or tick 'Overwrite tokenizer' in the UI if you want to replace the "
+            "local tokenizer with the imported model's tokenizer."
+        )
+
     os.makedirs(tok_dir, exist_ok=True)
     shutil.copy2(pkl_src, pkl_dst)
-    shutil.copy2(tb_src, os.path.join(tok_dir, "token_bytes.pt"))
+    shutil.copy2(tb_src, tb_dst)
     print(f"Installed tokenizer to {tok_dir}")
 
 

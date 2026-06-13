@@ -391,7 +391,11 @@ def build_argv(command_id: str, args: Dict[str, Any]) -> List[str]:
             continue
         if not arg.include_if_default and value == arg.default and not arg.required:
             continue
-        if arg.kind in {"int", "float"} and value == -1 and not arg.include_if_default:
+        # -1 is the "inherit/auto/disable" sentinel ONLY for args whose own default is -1
+        # (e.g. model_step, num_iterations). For args like eval_every (default 200/250) a
+        # user-supplied -1 means "disable" and MUST be passed through to upstream.
+        if (arg.kind in {"int", "float"} and value == -1 and arg.default == -1
+                and not arg.include_if_default):
             continue
         if arg.positional:
             argv.append(str(value))

@@ -11,6 +11,7 @@ import asyncio
 import gc
 import json
 import random
+import threading
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -30,6 +31,7 @@ class ChatWorkerPool:
         self.available_workers: asyncio.Queue = asyncio.Queue()
         self.settings: Dict[str, Any] = {}
         self.loading = False
+        self.inflight = 0  # number of in-progress /chat/completions streams
 
     @property
     def loaded(self) -> bool:
@@ -49,9 +51,9 @@ class ChatWorkerPool:
                 max(1, int(num_gpus)), device_type,
                 float(temperature), int(top_k), int(max_tokens),
             )
-            return self.health()
         finally:
             self.loading = False
+        return self.health()
 
     def _load_sync(self, source: str, model_tag: Optional[str], step: Optional[int],
                    num_gpus: int, device_type: str, temperature: float,
@@ -110,6 +112,10 @@ class ChatWorkerPool:
         }
 
     async def unload(self) -> Dict[str, Any]:
+        if self.inflight > 0:
+            raise RuntimeError(
+                f"{self.inflight} chat completion(s) still streaming. Stop them before unloading."
+            )
         self._clear_workers(self.workers)
         self.workers = []
         self.available_workers = asyncio.Queue()
@@ -133,6 +139,7 @@ class ChatWorkerPool:
             "loading": self.loading,
             "num_gpus": self.settings.get("num_gpus", 0),
             "available_workers": self.available_workers.qsize() if self.loaded else 0,
+            "inflight": self.inflight,
             "settings": self.settings,
         }
 
@@ -153,7 +160,7 @@ class ChatWorkerPool:
         if not self.loaded:
             raise RuntimeError("Chat worker pool is not loaded.")
         worker = await self.available_workers.get()
-        response_tokens: List[str] = []
+        self.inflight += 1
         try:
             conversation_tokens = build_conversation_tokens(worker.tokenizer, messages)
             async for chunk in generate_stream(
@@ -163,15 +170,13 @@ class ChatWorkerPool:
                 top_k if top_k is not None else self.settings.get("top_k", 50),
                 max_tokens if max_tokens is not None else self.settings.get("max_tokens", 512),
             ):
-                try:
-                    data = json.loads(chunk.replace("data: ", "").strip())
-                    if "token" in data:
-                        response_tokens.append(data["token"])
-                except Exception:
-                    pass
                 yield chunk
         finally:
-            await self.available_workers.put(worker)
+            self.inflight -= 1
+            # only return the worker to the pool if it still belongs to this pool
+            # (an unload() during streaming would have replaced the queue/workers)
+            if worker in self.workers:
+                await self.available_workers.put(worker)
 
 
 def build_conversation_tokens(tokenizer: Any, messages: List[Any]) -> List[int]:
@@ -200,6 +205,53 @@ def build_conversation_tokens(tokenizer: Any, messages: List[Any]) -> List[int]:
     return tokens
 
 
+async def aiter_engine_tokens(engine: Any, tokens: List[int], temperature: float,
+                              top_k: int, max_tokens: int):
+    """Drive the synchronous engine.generate loop on a worker thread and yield
+    token ids to the event loop, so the blocking CUDA forward passes don't freeze
+    the server. A stop flag lets us abandon generation early without running the
+    model all the way to max_tokens. Shared by the worker pool and the simple
+    single-model chat path."""
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    stop = threading.Event()
+    SENTINEL = object()
+
+    def produce():
+        try:
+            for token_column, _masks in engine.generate(
+                tokens,
+                num_samples=1,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_k=top_k if top_k > 0 else None,
+                seed=random.randint(0, 2**31 - 1),
+            ):
+                if stop.is_set():
+                    break
+                loop.call_soon_threadsafe(queue.put_nowait, int(token_column[0]))
+        except Exception as exc:  # surface generation errors to the consumer
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+    fut = loop.run_in_executor(None, produce)
+    try:
+        while True:
+            item = await queue.get()
+            if item is SENTINEL:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+    finally:
+        stop.set()  # tell the producer to stop on early break / client disconnect
+        try:
+            await fut
+        except Exception:
+            pass
+
+
 async def generate_stream(worker: ChatWorker, tokens: List[int], temperature: float,
                           top_k: int, max_tokens: int) -> AsyncGenerator[str, None]:
     assistant_end = worker.tokenizer.encode_special("<|assistant_end|>")
@@ -207,15 +259,7 @@ async def generate_stream(worker: ChatWorker, tokens: List[int], temperature: fl
     accumulated: List[int] = []
     last_clean = ""
 
-    for token_column, token_masks in worker.engine.generate(
-        tokens,
-        num_samples=1,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_k=top_k if top_k > 0 else None,
-        seed=random.randint(0, 2**31 - 1),
-    ):
-        tok = token_column[0]
+    async for tok in aiter_engine_tokens(worker.engine, tokens, temperature, top_k, max_tokens):
         if tok == assistant_end or tok == bos:
             break
         accumulated.append(tok)
@@ -225,5 +269,4 @@ async def generate_stream(worker: ChatWorker, tokens: List[int], temperature: fl
             if new:
                 yield f"data: {json.dumps({'token': new, 'gpu': worker.gpu_id}, ensure_ascii=False)}\n\n"
                 last_clean = text
-        await asyncio.sleep(0)
     yield f"data: {json.dumps({'done': True})}\n\n"

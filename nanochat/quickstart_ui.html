@@ -1338,17 +1338,33 @@ async function refreshChatWorkers() {
     }
 }
 
+function intOr(id, fallback) {
+    const v = parseInt(document.getElementById(id).value, 10);
+    return Number.isNaN(v) ? fallback : v;
+}
+function floatOr(id, fallback) {
+    const v = parseFloat(document.getElementById(id).value);
+    return Number.isNaN(v) ? fallback : v;
+}
+function formatDetail(detail, fallback) {
+    if (!detail) return fallback;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) return detail.map(d => `${(d.loc || []).join('.')}: ${d.msg || d}`).join('; ');
+    return JSON.stringify(detail);
+}
+
 async function loadChatWorkers() {
     clearTerm('workerLog');
+    const stepVal = parseInt(document.getElementById('workerStep').value, 10);
     const payload = {
         source: document.getElementById('workerSource').value,
         model_tag: document.getElementById('workerModelTag').value.trim() || null,
-        step: parseInt(document.getElementById('workerStep').value, 10),
-        num_gpus: parseInt(document.getElementById('workerNumGpus').value, 10),
+        step: Number.isNaN(stepVal) ? null : stepVal,
+        num_gpus: intOr('workerNumGpus', 1),
         device_type: document.getElementById('workerDeviceType').value,
-        temperature: parseFloat(document.getElementById('workerTemp').value),
-        top_k: parseInt(document.getElementById('workerTopK').value, 10),
-        max_tokens: parseInt(document.getElementById('workerMaxTokens').value, 10),
+        temperature: floatOr('workerTemp', 0.8),
+        top_k: intOr('workerTopK', 50),
+        max_tokens: intOr('workerMaxTokens', 512),
     };
     try {
         document.getElementById('btnWorkerLoad').disabled = true;
@@ -1359,7 +1375,7 @@ async function loadChatWorkers() {
             body: JSON.stringify(payload),
         });
         const data = await r.json();
-        if (!r.ok) throw new Error(data.detail || r.statusText);
+        if (!r.ok) throw new Error(formatDetail(data.detail, r.statusText));
         appendTerm('workerLog', JSON.stringify(data, null, 2));
         await fetchStatus();
     } catch(e) {

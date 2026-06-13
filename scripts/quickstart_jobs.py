@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import subprocess
@@ -78,6 +79,13 @@ class JobManager:
     def list_jobs(self) -> List[Dict[str, Any]]:
         return [job.public() for job in sorted(self._jobs.values(), key=lambda j: j.id, reverse=True)]
 
+    def has_active_job(self) -> bool:
+        """True if a CLI job is queued or running."""
+        if self._active_id is None:
+            return False
+        active = self._jobs.get(self._active_id)
+        return active is not None and active.status in {"queued", "running"}
+
     def get_job(self, job_id: int) -> Job:
         try:
             return self._jobs[job_id]
@@ -89,7 +97,7 @@ class JobManager:
         async with self._lock:
             if self._active_id is not None:
                 active = self._jobs.get(self._active_id)
-                if active and active.status == "running":
+                if active and active.status in {"queued", "running"}:
                     raise JobError(f"Job {active.id} is already running")
             if self.busy_check:
                 message = await self.busy_check(command_id)
@@ -112,9 +120,23 @@ class JobManager:
 
     async def stop(self, job_id: int) -> Dict[str, Any]:
         job = self.get_job(job_id)
-        if job.process is None or job.process.returncode is not None:
-            return {"status": "no_process", "job": job.public()}
         job.stop_requested = True
+        if job.process is None:
+            # Job was started but its subprocess hasn't spawned yet (or already
+            # finished). If still active, cancel the task; _run also re-checks
+            # stop_requested right after spawning to kill a process that races in.
+            if job.status in {"queued", "running"} and job.task and not job.task.done():
+                job.status = "stopped"
+                job.returncode = -9
+                job.finished_at = time.time()
+                await self._emit(job, {"type": "error", "text": "Job stopped by user", "code": -9})
+                job.task.cancel()
+                if self._active_id == job.id:
+                    self._active_id = None
+                return {"status": "stopped", "job": job.public()}
+            return {"status": "no_process", "job": job.public()}
+        if job.process.returncode is not None:
+            return {"status": "no_process", "job": job.public()}
         _kill_process_tree(job.process)
         try:
             await asyncio.wait_for(job.process.wait(), timeout=5.0)
@@ -133,13 +155,19 @@ class JobManager:
 
     async def event_stream(self, job_id: int):
         job = self.get_job(job_id)
-        queue: asyncio.Queue = asyncio.Queue()
-        for event in job.events:
-            yield _sse(event)
-        if job.status in {"done", "error", "stopped"}:
-            return
-        job.subscribers.append(queue)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=4000)
+        # Snapshot the backlog and register the subscriber atomically (no await in
+        # between) so an event emitted by the running job can't slip through the
+        # gap between replay and subscription and leave the client hanging.
+        backlog = list(job.events)
+        terminal = job.status in {"done", "error", "stopped"}
+        if not terminal:
+            job.subscribers.append(queue)
         try:
+            for event in backlog:
+                yield _sse(event)
+            if terminal:
+                return
             while True:
                 event = await queue.get()
                 yield _sse(event)
@@ -189,6 +217,10 @@ class JobManager:
                 limit=2**20,
                 **popen_kwargs,
             )
+            # A stop() that arrived during the spawn window set stop_requested but
+            # found process=None; honor it now that the process exists.
+            if job.stop_requested:
+                _kill_process_tree(job.process)
             assert job.process.stdout is not None
             await self._read_stdout(job)
             await job.process.wait()
@@ -256,9 +288,30 @@ class JobManager:
     async def _emit(self, job: Job, event: Dict[str, Any]):
         job.events.append(event)
         if len(job.events) > 2000:
-            job.events = job.events[-2000:]
+            # mutate in place (don't rebind) so any in-progress replay iterator
+            # keeps seeing appended events
+            del job.events[:-2000]
         for queue in list(job.subscribers):
-            await queue.put(event)
+            # bounded queues + drop-oldest so a stalled SSE client can't make the
+            # job task block on put() or accumulate events without bound
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    queue.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
+
+
+def _json_safe_loss(raw: str):
+    """Keep non-finite loss as its string token so json.dumps stays valid JSON
+    (a bare NaN/Infinity would make the browser's JSON.parse throw and drop the event)."""
+    value = float(raw)
+    return value if math.isfinite(value) else raw
 
 
 def parse_metric(line: str) -> Optional[Dict[str, Any]]:
@@ -268,7 +321,7 @@ def parse_metric(line: str) -> Optional[Dict[str, Any]]:
             "type": "metric",
             "step": int(m.group(1)),
             "total": int(m.group(2)),
-            "loss": float(m.group(3)),
+            "loss": _json_safe_loss(m.group(3)),
             "tok_per_sec": int(m.group(4).replace(",", "")),
         }
     m = SFT_METRIC_RE.search(line)
@@ -280,7 +333,7 @@ def parse_metric(line: str) -> Optional[Dict[str, Any]]:
             "type": "metric",
             "step": step_i,
             "total": total,
-            "loss": float(m.group(3)),
+            "loss": _json_safe_loss(m.group(3)),
             "tok_per_sec": int(m.group(4).replace(",", "")),
         }
     return None
