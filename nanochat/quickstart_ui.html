@@ -413,11 +413,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Pretraining için gerekli ClimbMix parquet shard dosyalarını indirir. Bu aşama model çalıştırmaz; sadece veri hazırlar.</p>
+                <p>Base model sıfırdan eğitilecekse kullanılan ClimbMix parquet shard dosyalarını indirir. Bu aşama model çalıştırmaz; yalnızca eğitim verisini yerel cache'e hazırlar.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> Network + disk, GPU kullanmaz.</span>
-                    <span><b>Gerekli mi?</b> Sıfırdan eğitim için evet; hazır model import ediyorsan genelde hayır.</span>
-                    <span><b>Çıktı:</b> `base_data_climbmix` altında train/val shardları.</span>
+                    <span><b>Gerekli mi?</b> Sıfırdan base training için evet; hazır HF checkpoint import ediyorsan genelde hayır.</span>
+                    <span><b>Çıktı:</b> `base_data_climbmix` altında train shardları + her zaman indirilen val shard.</span>
                 </div>
             </div>
             <div class="config-panel">
@@ -447,11 +447,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Metni modelin anlayacağı token id dizilerine çevirecek BPE tokenizer'ı eğitir. Bu, model eğitimi değildir.</p>
+                <p>Metni modelin anlayacağı token id dizilerine çevirecek BPE tokenizer'ı eğitir. Bu, model ağırlığı eğitimi değildir; modelin kelime/parça sözlüğünü hazırlar.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> CPU + disk, GPU kullanmaz.</span>
-                    <span><b>Gerekli mi?</b> Sıfırdan eğitim için evet; uyumlu tokenizer içeren HF checkpoint import ediyorsan opsiyonel.</span>
-                    <span><b>Çıktı:</b> `tokenizer.pkl` ve `token_bytes.pt`.</span>
+                    <span><b>Gerekli mi?</b> Sıfırdan eğitim için evet; uyumlu tokenizer içeren HF checkpoint import ediyorsan atlanabilir.</span>
+                    <span><b>Çıktı:</b> `tokenizer/tokenizer.pkl` ve BPB eval için `tokenizer/token_bytes.pt`.</span>
                 </div>
             </div>
             <div class="config-panel">
@@ -479,11 +479,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Ya base GPT modelini sıfırdan eğitir ya da HuggingFace'den hazır nanochat checkpoint indirir. Chat modelinin temelini bu aşama oluşturur.</p>
+                <p>Chat'e giden ana base checkpoint'i üretir: ya GPT modelini sıfırdan pretrain eder ya da HuggingFace'den native nanochat checkpoint indirir. Bundan sonra SFT, chat, eval veya RL akışları bu checkpoint'e dayanır.</p>
                 <div class="info-meta">
                     <span><b>Train:</b> CUDA varsa GPU kullanır; en ağır aşamadır.</span>
-                    <span><b>Import:</b> Network + disk işi, GPU kullanmaz.</span>
-                    <span><b>Çıktı:</b> `base_checkpoints/d...` altında base checkpoint.</span>
+                    <span><b>Import:</b> Network + disk işi, GPU kullanmaz; tokenizer uyumsuzsa overwrite için açık onay ister.</span>
+                    <span><b>Çıktı:</b> `base_checkpoints/d...` altında base checkpoint ve metadata.</span>
                 </div>
             </div>
 
@@ -611,10 +611,10 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Base modeli konuşma formatına ve chat özel tokenlarına alıştırır. Teknik olarak opsiyonel, ama düzgün sohbet deneyimi için pratikte önerilir.</p>
+                <p>Base modeli konuşma formatına, assistant/user özel tokenlarına ve chat görevlerine alıştırır. Teknik olarak atlanabilir, ama normal chat deneyimi için pratikte yapılması gereken aşamadır.</p>
                 <div class="info-meta">
-                    <span><b>Çalışma:</b> GPU-heavy training.</span>
-                    <span><b>Gerekli mi?</b> Base eval için hayır; kaliteli chat için evet.</span>
+                    <span><b>Çalışma:</b> CUDA varsa GPU-heavy training; ilk çalıştırma SFT veri setlerini indirebilir.</span>
+                    <span><b>Gerekli mi?</b> Base eval/sample için hayır; kaliteli sohbet ve RL için evet.</span>
                     <span><b>Çıktı:</b> `chatsft_checkpoints` altında SFT checkpoint.</span>
                 </div>
             </div>
@@ -682,11 +682,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Tek bir checkpoint'i bu quickstart process'i içinde yükler ve SSE streaming ile sohbet eder. Küçük testler için en basit chat yoludur.</p>
+                <p>Tek bir checkpoint'i bu quickstart process'i içinde yükler ve SSE streaming ile sohbet eder. Modeli hızlıca denemek için en basit yoldur; yoğun kullanım için Chat Server worker pool daha uygundur.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> CUDA varsa inference GPU'da çalışır.</span>
-                    <span><b>Gerekli mi?</b> Modeli denemek için kullanılır; eğitim için gerekli değildir.</span>
-                    <span><b>Not:</b> Worker pool yüklüyse simple chat modeli ayrıca yüklenmez.</span>
+                    <span><b>Gerekli mi?</b> Eğitim için gerekli değildir; model davranışını manuel kontrol etmek için kullanılır.</span>
+                    <span><b>Not:</b> SFT/RL checkpoint önerilir; base checkpoint chat-tuned değildir ve kaba cevap verebilir.</span>
                 </div>
             </div>
             <div class="config-panel">
@@ -728,11 +728,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>CUDA/VRAM durumunu, indirilen artifactleri, checkpoint sayılarını, aktif jobları ve chat worker durumunu tek yerde gösterir.</p>
+                <p>CUDA/VRAM durumunu, indirilen artifactleri, checkpoint sayılarını, aktif jobları, simple chat modelini ve chat worker durumunu tek yerde gösterir.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> Durum okur; GPU işi başlatmaz.</span>
                     <span><b>Gerekli mi?</b> Zorunlu değil, kontrol panelidir.</span>
-                    <span><b>Ne zaman?</b> Bir iş başlatmadan önce VRAM ve aktif process kontrolü için.</span>
+                    <span><b>Ne zaman?</b> Bir GPU işi başlatmadan önce VRAM ve aktif process/job kontrolü için.</span>
                 </div>
             </div>
             <div class="dashboard-grid">
@@ -757,11 +757,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Basit wizard ayarlarının ötesine geçip upstream `base_train` ve `chat_sft` CLI bayraklarını UI'dan yönetir.</p>
+                <p>Basit wizard ayarlarının ötesine geçip upstream `base_train` ve `chat_sft` CLI bayraklarını UI'dan yönetir. Araştırma/deneme amaçlı tam kontrol panelidir.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> GPU-heavy training.</span>
-                    <span><b>Gerekli mi?</b> Opsiyonel; ileri ayar gerektiğinde kullanılır.</span>
-                    <span><b>Not:</b> Chat worker/simple model yüklüyken VRAM için engellenir.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; wizard varsayılanları yetmediğinde kullanılır.</span>
+                    <span><b>Not:</b> Komut preview güvenli argv gösterir; chat model/worker yüklüyken VRAM çakışması için engellenir.</span>
                 </div>
             </div>
             <div class="command-panel" id="panelTrain" data-commands="base_train,chat_sft"></div>
@@ -775,11 +775,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Tokenizer sıkıştırmasını, base model CORE/BPB/sample metriklerini ve chat benchmark görevlerini ölçer; rapor üretme/resetleme de buradadır.</p>
+                <p>Tokenizer sıkıştırmasını, base model CORE/BPB/sample metriklerini ve chat benchmark görevlerini ölçer; nanochat report üretme/resetleme de buradadır. Model üretmez, kalite ölçer.</p>
                 <div class="info-meta">
-                    <span><b>Çalışma:</b> `tok_eval` CPU; `base_eval`/`chat_eval` GPU kullanabilir.</span>
+                    <span><b>Çalışma:</b> `tok_eval` CPU; `base_eval`/`chat_eval` model yüklediği için CUDA varsa GPU kullanır.</span>
                     <span><b>Gerekli mi?</b> Opsiyonel; kalite ölçümü için.</span>
-                    <span><b>Çıktı:</b> Terminal logları ve nanochat report kayıtları.</span>
+                    <span><b>Çıktı:</b> Terminal logları, skorlar ve nanochat report kayıtları.</span>
                 </div>
             </div>
             <div class="command-panel" id="panelEval" data-commands="tok_eval,base_eval,chat_eval,report"></div>
@@ -793,11 +793,11 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Orijinal `chat_web.py` mantığına benzer worker pool'u tek quickstart portunun içine yükler. Çoklu GPU varsa chat isteklerini worker'lara dağıtır.</p>
+                <p>Orijinal `chat_web.py` mantığına benzer worker pool'u tek quickstart portunun içine yükler. Çoklu CUDA GPU varsa chat isteklerini worker'lara dağıtır; ayrı ikinci server başlatmaz.</p>
                 <div class="info-meta">
-                    <span><b>Çalışma:</b> CUDA inference; multi-GPU sadece CUDA.</span>
-                    <span><b>Gerekli mi?</b> Opsiyonel; yoğun/çoklu chat için.</span>
-                    <span><b>Not:</b> Training/RL başlatmadan önce unload gerekir.</span>
+                    <span><b>Çalışma:</b> Inference; multi-GPU sadece CUDA, CPU/MPS tek worker'a düşer.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; yoğun/çoklu chat veya chat_web uyumlu health/stats için.</span>
+                    <span><b>Not:</b> Training/SFT/RL/eval başlatmadan önce unload gerekir.</span>
                 </div>
             </div>
             <div class="config-panel">
@@ -847,10 +847,10 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>SFT checkpoint üstünde GSM8K matematik görevleriyle reinforcement learning yapar. Chat modelini daha ileri ayarlamak için kullanılan deneysel/ileri aşamadır.</p>
+                <p>SFT checkpoint üstünde GSM8K matematik görevleriyle reinforcement learning yapar. Chat modelini daha ileri ayarlamak için kullanılan deneysel ve pahalı bir ileri aşamadır.</p>
                 <div class="info-meta">
-                    <span><b>Çalışma:</b> GPU-heavy training.</span>
-                    <span><b>Gerekli mi?</b> Tamamen opsiyonel; SFT sonrası kullanılır.</span>
+                    <span><b>Çalışma:</b> CUDA varsa GPU-heavy training; rollout generation + optimizer adımları içerir.</span>
+                    <span><b>Gerekli mi?</b> Tamamen opsiyonel; önce SFT checkpoint gerekir.</span>
                     <span><b>Çıktı:</b> `chatrl_checkpoints` altında RL checkpoint.</span>
                 </div>
             </div>
@@ -865,10 +865,10 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Base, SFT ve RL checkpoint dosyalarını metadata ile listeler. Hangi model/tag/step'in yükleneceğini seçmeden önce kontrol etmek için kullanılır.</p>
+                <p>Base, SFT ve RL checkpoint dosyalarını metadata ile listeler. Hangi source/tag/step'in chat, eval, SFT veya RL için kullanılacağını seçmeden önce kontrol etmek için kullanılır.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> Dosya/metadata okur, GPU kullanmaz.</span>
-                    <span><b>Gerekli mi?</b> Opsiyonel ama debug için faydalı.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel ama seçim/debug için faydalı.</span>
                     <span><b>Kaynak:</b> `NANOCHAT_BASE_DIR` veya varsayılan nanochat cache.</span>
                 </div>
             </div>
@@ -886,10 +886,10 @@
             </div>
             <div class="info-panel">
                 <strong>Ne işe yarar?</strong>
-                <p>Upstream `runs/*.sh` tariflerini UI'dan preview edip başlatır. Bunlar nanochat'in hazır çalışma senaryolarıdır.</p>
+                <p>Upstream `runs/*.sh` tariflerini UI'dan preview edip başlatır. Bunlar nanochat'in hazır çalışma senaryolarıdır; bazıları saatler sürebilir ve ciddi GPU maliyeti yaratabilir.</p>
                 <div class="info-meta">
                     <span><b>Çalışma:</b> Tarife bağlı; `speedrun` GPU, `runcpu` CPU/MPS.</span>
-                    <span><b>Gerekli mi?</b> Opsiyonel; hazır deneyleri çalıştırmak için.</span>
+                    <span><b>Gerekli mi?</b> Opsiyonel; hazır deneyleri veya upstream referans akışlarını çalıştırmak için.</span>
                     <span><b>Windows:</b> Bash veya WSL gerekir.</span>
                 </div>
             </div>
