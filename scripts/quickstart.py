@@ -20,12 +20,22 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
+
+from scripts.quickstart_chat_workers import ChatWorkerPool
+from scripts.quickstart_commands import (
+    CommandValidationError,
+    capabilities as list_capabilities,
+    command_preview,
+    command_groups,
+    get_command,
+)
+from scripts.quickstart_jobs import JobError, JobManager
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,6 +74,7 @@ loaded_model = None  # keep ref for explicit cleanup
 loaded_depth = None
 loaded_step = None
 loaded_source = None
+chat_worker_pool = ChatWorkerPool()
 
 # base_train.py:  step 00010/00100 (10.00%) | loss: 4.123456 | ... | tok/sec: 12,345 | ...
 METRIC_VALUE_RE = r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|nan|inf|-inf)"
@@ -103,7 +114,7 @@ def scan_checkpoints():
     """Scan base/sft checkpoint dirs, return a list of checkpoint dicts."""
     base = get_base_dir()
     results = []
-    for source, dirname in [("base", "base_checkpoints"), ("sft", "chatsft_checkpoints")]:
+    for source, dirname in [("base", "base_checkpoints"), ("sft", "chatsft_checkpoints"), ("rl", "chatrl_checkpoints")]:
         ckpt_base = os.path.join(base, dirname)
         if not os.path.isdir(ckpt_base):
             continue
@@ -209,8 +220,9 @@ def check_status():
     checkpoints = scan_checkpoints()
     trained = {}
     sft_trained = {}
+    rl_trained = {}
     for c in checkpoints:
-        target = sft_trained if c["source"] == "sft" else trained
+        target = sft_trained if c["source"] == "sft" else rl_trained if c["source"] == "rl" else trained
         target[c["depth"]] = target.get(c["depth"], 0) + 1
 
     chat_ready = loaded_engine is not None
@@ -221,8 +233,10 @@ def check_status():
         "tokenizer": tokenizer_ready(),
         "train": trained,
         "sft": sft_trained,
+        "rl": rl_trained,
         "chat": chat_ready,
         "chat_model": {"depth": loaded_depth, "step": loaded_step, "source": loaded_source} if chat_ready else None,
+        "chat_workers": chat_worker_pool.health(),
         "running": running_process is not None and running_process.returncode is None,
         "device": get_gpu_info(),
     }
@@ -238,6 +252,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def job_busy_check(command_id: str):
+    if running_process is not None and running_process.returncode is None:
+        return "A legacy quickstart process is already running. Stop it before starting CLI jobs."
+    spec = get_command(command_id)
+    if spec.gpu_heavy and chat_worker_pool.loaded:
+        return "Unload the chat worker pool before starting GPU-heavy CLI jobs."
+    if spec.gpu_heavy and loaded_model is not None:
+        return "Unload the simple chat model before starting GPU-heavy CLI jobs."
+    return None
+
+
+job_manager = JobManager(REPO_ROOT, busy_check=job_busy_check)
 
 
 def sse_error_response(message, code=400):
@@ -263,6 +291,133 @@ async def favicon():
 @app.get("/status")
 async def status():
     return check_status()
+
+
+class JobRequest(BaseModel):
+    command_id: str
+    args: Dict[str, Any] = {}
+
+
+class WorkerLoadRequest(BaseModel):
+    source: str = "sft"
+    model_tag: Optional[str] = None
+    step: Optional[int] = None
+    num_gpus: int = 1
+    device_type: str = ""
+    temperature: float = 0.8
+    top_k: int = 50
+    max_tokens: int = 512
+
+
+def validate_worker_load(req: WorkerLoadRequest):
+    if req.source not in {"base", "sft", "rl"}:
+        raise HTTPException(status_code=400, detail="source must be one of: base, sft, rl")
+    if req.device_type not in {"", "cuda", "cpu", "mps"}:
+        raise HTTPException(status_code=400, detail="device_type must be cuda, cpu, mps, or empty")
+    if req.num_gpus < 1:
+        raise HTTPException(status_code=400, detail="num_gpus must be >= 1")
+    if not (0 <= req.temperature <= 2):
+        raise HTTPException(status_code=400, detail="temperature must be between 0 and 2")
+    if not (0 <= req.top_k <= 200):
+        raise HTTPException(status_code=400, detail="top_k must be between 0 and 200")
+    if not (1 <= req.max_tokens <= 4096):
+        raise HTTPException(status_code=400, detail="max_tokens must be between 1 and 4096")
+
+
+@app.get("/api/capabilities")
+async def api_capabilities():
+    return {"commands": list_capabilities(), "groups": command_groups()}
+
+
+@app.post("/api/jobs")
+async def api_start_job(req: JobRequest):
+    try:
+        return await job_manager.start(req.command_id, req.args)
+    except (CommandValidationError, JobError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/commands/preview")
+async def api_command_preview(req: JobRequest):
+    try:
+        return {"preview": command_preview(req.command_id, req.args)}
+    except CommandValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/jobs")
+async def api_jobs():
+    return job_manager.list_jobs()
+
+
+@app.get("/api/jobs/{job_id}")
+async def api_job(job_id: int):
+    try:
+        return job_manager.get_job(job_id).public()
+    except JobError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/jobs/{job_id}/events")
+async def api_job_events(job_id: int):
+    try:
+        job_manager.get_job(job_id)
+    except JobError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StreamingResponse(job_manager.event_stream(job_id), media_type="text/event-stream")
+
+
+@app.post("/api/jobs/{job_id}/stop")
+async def api_stop_job(job_id: int):
+    try:
+        return await job_manager.stop(job_id)
+    except JobError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/checkpoints")
+async def api_checkpoints():
+    return scan_checkpoints()
+
+
+@app.post("/api/chat/workers/load")
+async def api_chat_workers_load(req: WorkerLoadRequest):
+    validate_worker_load(req)
+    if running_process is not None and running_process.returncode is None:
+        raise HTTPException(status_code=409, detail="A legacy quickstart process is running. Stop it before loading chat workers.")
+    jobs = job_manager.list_jobs()
+    if any(job["status"] == "running" for job in jobs):
+        raise HTTPException(status_code=409, detail="A CLI job is running. Stop it before loading chat workers.")
+    if loaded_model is not None:
+        _unload_model()
+    try:
+        return await chat_worker_pool.load(
+            source=req.source,
+            model_tag=req.model_tag,
+            step=req.step,
+            num_gpus=req.num_gpus,
+            device_type=req.device_type,
+            temperature=req.temperature,
+            top_k=req.top_k,
+            max_tokens=req.max_tokens,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/chat/workers/unload")
+async def api_chat_workers_unload():
+    return await chat_worker_pool.unload()
+
+
+@app.get("/api/chat/health")
+async def api_chat_health():
+    return chat_worker_pool.health()
+
+
+@app.get("/api/chat/stats")
+async def api_chat_stats():
+    return chat_worker_pool.stats()
 
 
 def preflight_stage(stage: str, depth: int, step: int):
@@ -337,6 +492,8 @@ async def run_stage(stage: str, n_shards: int = 4, depth: int = 4,
 
     if running_process is not None and running_process.returncode is None:
         raise HTTPException(status_code=409, detail="A process is already running")
+    if stage in ("train", "sft") and chat_worker_pool.loaded:
+        return sse_error_response("Unload the chat worker pool before starting training or SFT.")
 
     python = sys.executable
 
@@ -599,6 +756,8 @@ async def chat_load(req: LoadRequest):
 
     if running_process is not None and running_process.returncode is None:
         raise HTTPException(status_code=409, detail="A training/import process is running. Stop it before loading a chat model.")
+    if chat_worker_pool.loaded:
+        raise HTTPException(status_code=409, detail="Chat worker pool is loaded. Unload it before loading a simple chat model.")
 
     # Free previous model first to avoid double memory usage
     if loaded_model is not None:
@@ -667,9 +826,19 @@ def validate_chat_request(request: ChatRequest):
 
 @app.post("/chat/completions")
 async def chat_completions(request: ChatRequest):
+    validate_chat_request(request)
+    if chat_worker_pool.loaded:
+        return StreamingResponse(
+            chat_worker_pool.complete(
+                request.messages,
+                temperature=request.temperature,
+                top_k=request.top_k,
+                max_tokens=request.max_tokens,
+            ),
+            media_type="text/event-stream",
+        )
     if loaded_engine is None or loaded_tokenizer is None:
         raise HTTPException(status_code=400, detail="No model loaded. POST /chat/load first.")
-    validate_chat_request(request)
 
     tokenizer = loaded_tokenizer
     engine = loaded_engine

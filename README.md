@@ -61,7 +61,8 @@ uv run --extra gpu python -m scripts.quickstart --port 8001
 
 `start_quickstart.bat` is a convenience wrapper for the same quickstart command.
 See [QUICKSTART_README.md](QUICKSTART_README.md) for the CUDA UI controls,
-dark mode, troubleshooting, and the zero-upstream-modification notes.
+dark mode, CLI coverage, chat worker pool controls, troubleshooting, and the
+zero-upstream-modification notes.
 
 ### Setup
 

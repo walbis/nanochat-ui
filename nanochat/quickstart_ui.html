@@ -284,6 +284,51 @@
         .gpu-info { color: var(--success); font-weight: 600; }
         .optional-label { font-size: 11px; color: var(--text-muted); font-weight: 400; }
         .inline-status { font-size: 13px; color: var(--text-muted); align-self: center; }
+        .dashboard-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+        .status-card {
+            background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+            padding: 14px; min-height: 86px;
+        }
+        .status-card h3 {
+            font-size: 12px; color: var(--text-muted); text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 8px;
+        }
+        .status-card p { font-size: 20px; font-weight: 700; }
+        .status-card small { display: block; margin-top: 6px; color: var(--text-muted); }
+        .command-panel {
+            background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+            padding: 18px; display: flex; flex-direction: column; gap: 14px;
+        }
+        .command-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+        .command-form {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+        .command-form .config-field input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+        .advanced-args {
+            border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+            background: var(--panel-soft);
+        }
+        .advanced-args summary { cursor: pointer; font-weight: 700; color: var(--text-subtle); }
+        .command-preview {
+            background: var(--terminal-bg); color: var(--terminal-text); border-radius: 10px;
+            padding: 10px 12px; font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 12px; overflow-x: auto; white-space: pre;
+        }
+        .checkpoint-table {
+            width: 100%; border-collapse: collapse; background: var(--panel);
+            border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+        }
+        .checkpoint-table th, .checkpoint-table td {
+            text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border);
+            font-size: 13px;
+        }
+        .checkpoint-table th { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+        .checkpoint-table tr:last-child td { border-bottom: none; }
+        .status-line { color: var(--text-muted); font-size: 13px; }
     </style>
 </head>
 <body>
@@ -307,6 +352,27 @@
             </li>
             <li class="step-item locked" data-step="4" onclick="goStep(4)">
                 <span class="step-icon" id="icon4"></span> Chat
+            </li>
+            <li class="step-item" data-step="5" onclick="goStep(5)">
+                <span class="step-icon" id="icon5"></span> Dashboard
+            </li>
+            <li class="step-item" data-step="6" onclick="goStep(6)">
+                <span class="step-icon" id="icon6"></span> Advanced Train
+            </li>
+            <li class="step-item" data-step="7" onclick="goStep(7)">
+                <span class="step-icon" id="icon7"></span> Evaluation
+            </li>
+            <li class="step-item" data-step="8" onclick="goStep(8)">
+                <span class="step-icon" id="icon8"></span> Chat Server
+            </li>
+            <li class="step-item" data-step="9" onclick="goStep(9)">
+                <span class="step-icon" id="icon9"></span> RL
+            </li>
+            <li class="step-item" data-step="10" onclick="goStep(10)">
+                <span class="step-icon" id="icon10"></span> Checkpoints
+            </li>
+            <li class="step-item" data-step="11" onclick="goStep(11)">
+                <span class="step-icon" id="icon11"></span> Recipes
             </li>
         </ul>
         <div class="sidebar-actions">
@@ -587,14 +653,127 @@
                 </div>
             </div>
         </div>
+
+        <!-- Step 5: Dashboard -->
+        <div class="step-content" id="step5">
+            <div class="main-header">
+                <h2>Dashboard</h2>
+                <p>Overview of CUDA, artifacts, checkpoints, running jobs, and chat workers.</p>
+            </div>
+            <div class="dashboard-grid">
+                <div class="status-card"><h3>Device</h3><p id="dashDevice">-</p><small id="dashVram">-</small></div>
+                <div class="status-card"><h3>Data</h3><p id="dashData">-</p><small>Downloaded ClimbMix shards</small></div>
+                <div class="status-card"><h3>Tokenizer</h3><p id="dashTokenizer">-</p><small>Tokenizer artifacts</small></div>
+                <div class="status-card"><h3>Checkpoints</h3><p id="dashCheckpoints">-</p><small id="dashCheckpointDetail">Base / SFT / RL</small></div>
+                <div class="status-card"><h3>Chat Workers</h3><p id="dashWorkers">-</p><small id="dashWorkerDetail">Worker pool status</small></div>
+                <div class="status-card"><h3>Jobs</h3><p id="dashJobs">-</p><small id="dashJobDetail">CLI job runner</small></div>
+            </div>
+            <div>
+                <button class="btn btn-secondary" onclick="refreshDashboard()">Refresh</button>
+            </div>
+            <div class="terminal" id="dashboardLog"></div>
+        </div>
+
+        <!-- Step 6: Advanced Train -->
+        <div class="step-content" id="step6">
+            <div class="main-header">
+                <h2>Advanced Train</h2>
+                <p>Run base training or full SFT with original nanochat CLI flags.</p>
+            </div>
+            <div class="command-panel" id="panelTrain" data-commands="base_train,chat_sft"></div>
+        </div>
+
+        <!-- Step 7: Evaluation -->
+        <div class="step-content" id="step7">
+            <div class="main-header">
+                <h2>Evaluation</h2>
+                <p>Run tokenizer, base, and chat evaluation jobs.</p>
+            </div>
+            <div class="command-panel" id="panelEval" data-commands="tok_eval,base_eval,chat_eval,report"></div>
+        </div>
+
+        <!-- Step 8: Chat Server -->
+        <div class="step-content" id="step8">
+            <div class="main-header">
+                <h2>Chat Server</h2>
+                <p>Load a chat_web-style worker pool inside this quickstart server.</p>
+            </div>
+            <div class="config-panel">
+                <div class="config-field">
+                    <label>Source</label>
+                    <select id="workerSource">
+                        <option value="sft" selected>SFT</option>
+                        <option value="rl">RL</option>
+                        <option value="base">Base</option>
+                    </select>
+                </div>
+                <div class="config-field"><label>Model Tag</label><input type="text" id="workerModelTag" placeholder="auto or d20"></div>
+                <div class="config-field"><label>Step</label><input type="number" id="workerStep" value="-1" min="-1"></div>
+                <div class="config-field"><label>GPUs</label><input type="number" id="workerNumGpus" value="1" min="1"></div>
+                <div class="config-field">
+                    <label>Device</label>
+                    <select id="workerDeviceType">
+                        <option value="" selected>Auto</option>
+                        <option value="cuda">CUDA</option>
+                        <option value="cpu">CPU</option>
+                        <option value="mps">MPS</option>
+                    </select>
+                </div>
+                <div class="config-field"><label>Temperature</label><input type="number" id="workerTemp" value="0.8" min="0" max="2" step="0.1"></div>
+                <div class="config-field"><label>Top-K</label><input type="number" id="workerTopK" value="50" min="0" max="200" step="5"></div>
+                <div class="config-field"><label>Max Tokens</label><input type="number" id="workerMaxTokens" value="512" min="1" max="4096"></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-primary" id="btnWorkerLoad" onclick="loadChatWorkers()">Load Worker Pool</button>
+                <button class="btn btn-secondary" id="btnWorkerUnload" onclick="unloadChatWorkers()">Unload</button>
+                <button class="btn btn-secondary" onclick="refreshChatWorkers()">Refresh Stats</button>
+            </div>
+            <div class="stats-bar">
+                <div class="stat"><span class="stat-label">Ready</span><span class="stat-value" id="workerReady">-</span></div>
+                <div class="stat"><span class="stat-label">Workers</span><span class="stat-value" id="workerCount">-</span></div>
+                <div class="stat"><span class="stat-label">Available</span><span class="stat-value" id="workerAvailable">-</span></div>
+                <div class="stat"><span class="stat-label">Busy</span><span class="stat-value" id="workerBusy">-</span></div>
+            </div>
+            <div class="terminal" id="workerLog"></div>
+        </div>
+
+        <!-- Step 9: RL -->
+        <div class="step-content" id="step9">
+            <div class="main-header">
+                <h2>RL</h2>
+                <p>Run GSM8K reinforcement learning with original nanochat CLI flags.</p>
+            </div>
+            <div class="command-panel" id="panelRl" data-commands="chat_rl"></div>
+        </div>
+
+        <!-- Step 10: Checkpoints -->
+        <div class="step-content" id="step10">
+            <div class="main-header">
+                <h2>Checkpoints</h2>
+                <p>Inspect base, SFT, and RL checkpoints discovered under NANOCHAT_BASE_DIR.</p>
+            </div>
+            <div>
+                <button class="btn btn-secondary" onclick="loadCheckpointTable()">Refresh</button>
+            </div>
+            <div id="checkpointTableWrap"></div>
+        </div>
+
+        <!-- Step 11: Recipes -->
+        <div class="step-content" id="step11">
+            <div class="main-header">
+                <h2>Recipes</h2>
+                <p>Launch original run scripts. Native Windows requires bash or WSL for .sh recipes.</p>
+            </div>
+            <div class="command-panel" id="panelRecipes" data-commands="recipe_runcpu,recipe_speedrun,recipe_scaling_laws,recipe_miniseries"></div>
+        </div>
     </div>
 
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
-const NUM_STEPS = 5;
+const NUM_STEPS = 12;
 let currentStep = 0;
-const stepDone = [false, false, false, false, false];
-const artifactReady = [false, false, false, false, false];
+const stepDone = Array(NUM_STEPS).fill(false);
+const artifactReady = Array(NUM_STEPS).fill(false);
 let isRunning = false;
 let serverRunning = false;
 let runningStep = null;  // which step is currently running (2 or 3)
@@ -609,6 +788,10 @@ const PROGRESS_KEY = 'nanochatCudaQuickstartProgress';
 const THEME_KEY = 'nanochatCudaQuickstartTheme';
 let progressLoaded = false;
 let statusPollTimer = null;
+let capabilities = [];
+let capabilityById = {};
+let panelState = {};
+let genericJobSources = {};
 
 function loadProgress() {
     try {
@@ -666,7 +849,10 @@ function toggleTheme() {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 initTheme();
+initCapabilities();
 fetchStatus();
+refreshDashboard();
+loadCheckpointTable();
 
 document.getElementById('chatTemp').oninput = e => {
     document.getElementById('chatTempVal').textContent = e.target.value;
@@ -680,6 +866,190 @@ document.getElementById('chatInput').oninput = function() {
     document.getElementById('chatSend').disabled = !this.value.trim() || chatGenerating || !modelLoaded;
 };
 
+async function initCapabilities() {
+    try {
+        const r = await fetch('/api/capabilities');
+        const data = await r.json();
+        capabilities = data.commands || [];
+        capabilityById = Object.fromEntries(capabilities.map(c => [c.id, c]));
+        document.querySelectorAll('.command-panel').forEach(renderCommandPanel);
+    } catch(e) {
+        console.error(e);
+        appendTerm('dashboardLog', '!! Could not load CLI capabilities: ' + e.message);
+    }
+}
+
+function renderCommandPanel(panel) {
+    const panelId = panel.id;
+    const commandIds = (panel.dataset.commands || '').split(',').map(s => s.trim()).filter(Boolean);
+    const available = commandIds.map(id => capabilityById[id]).filter(Boolean);
+    if (available.length === 0) {
+        panel.innerHTML = '<div class="status-line">No commands available.</div>';
+        return;
+    }
+    panelState[panelId] = { commandId: available[0].id, jobId: null };
+    panel.innerHTML = `
+        <div class="command-toolbar">
+            <div class="config-field">
+                <label>Command</label>
+                <select id="${panelId}Command"></select>
+            </div>
+            <div class="status-line" id="${panelId}Desc"></div>
+        </div>
+        <div id="${panelId}Form"></div>
+        <div class="command-preview" id="${panelId}Preview"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="${panelId}Run" onclick="runCommandPanel('${panelId}')">Run</button>
+            <button class="btn btn-danger" id="${panelId}Stop" onclick="stopCommandPanel('${panelId}')" style="display:none;">Stop</button>
+        </div>
+        <div class="terminal" id="${panelId}Term"></div>
+    `;
+    const sel = document.getElementById(panelId + 'Command');
+    for (const command of available) {
+        const opt = document.createElement('option');
+        opt.value = command.id;
+        opt.textContent = command.label;
+        sel.appendChild(opt);
+    }
+    sel.onchange = () => {
+        panelState[panelId].commandId = sel.value;
+        renderCommandForm(panelId);
+    };
+    renderCommandForm(panelId);
+}
+
+function renderCommandForm(panelId) {
+    const command = capabilityById[panelState[panelId].commandId];
+    document.getElementById(panelId + 'Desc').textContent = command.description || '';
+    const basic = command.args.filter(a => !a.advanced);
+    const advanced = command.args.filter(a => a.advanced);
+    const form = document.getElementById(panelId + 'Form');
+    const basicHtml = `<div class="command-form">${basic.map(a => renderArgControl(panelId, a)).join('')}</div>`;
+    const advancedHtml = advanced.length
+        ? `<details class="advanced-args"><summary>Advanced flags</summary><div class="command-form" style="margin-top:12px;">${advanced.map(a => renderArgControl(panelId, a)).join('')}</div></details>`
+        : '';
+    form.innerHTML = basicHtml + advancedHtml;
+    for (const arg of command.args) {
+        const el = document.getElementById(argInputId(panelId, arg.name));
+        if (el) el.oninput = () => updateCommandPreview(panelId);
+        if (el && el.tagName === 'SELECT') el.onchange = () => updateCommandPreview(panelId);
+    }
+    updateCommandPreview(panelId);
+}
+
+function renderArgControl(panelId, arg) {
+    const id = argInputId(panelId, arg.name);
+    const title = arg.help ? ` title="${escapeAttr(arg.help)}"` : '';
+    if (arg.kind === 'bool') {
+        return `<div class="toggle-field"${title} style="align-self:end;"><input type="checkbox" id="${id}" ${arg.default ? 'checked' : ''}><label for="${id}">${escapeHtml(arg.label)}</label></div>`;
+    }
+    if (arg.kind === 'select') {
+        return `<div class="config-field"${title}><label>${escapeHtml(arg.label)}</label><select id="${id}">${(arg.choices || []).map(v => `<option value="${escapeAttr(String(v))}" ${v === arg.default ? 'selected' : ''}>${escapeHtml(String(v || 'Auto'))}</option>`).join('')}</select></div>`;
+    }
+    const type = arg.kind === 'int' || arg.kind === 'float' ? 'number' : 'text';
+    const step = arg.kind === 'float' ? ' step="0.0001"' : '';
+    const min = arg.min !== null && arg.min !== undefined ? ` min="${arg.min}"` : '';
+    const max = arg.max !== null && arg.max !== undefined ? ` max="${arg.max}"` : '';
+    return `<div class="config-field"${title}><label>${escapeHtml(arg.label)}</label><input type="${type}" id="${id}" value="${escapeAttr(arg.default ?? '')}"${step}${min}${max}></div>`;
+}
+
+function argInputId(panelId, name) { return `${panelId}_${name}`; }
+
+function collectCommandArgs(panelId) {
+    const command = capabilityById[panelState[panelId].commandId];
+    const args = {};
+    for (const arg of command.args) {
+        const el = document.getElementById(argInputId(panelId, arg.name));
+        if (!el) continue;
+        if (arg.kind === 'bool') args[arg.name] = el.checked;
+        else if (arg.kind === 'int') args[arg.name] = el.value === '' ? null : parseInt(el.value, 10);
+        else if (arg.kind === 'float') args[arg.name] = el.value === '' ? null : parseFloat(el.value);
+        else args[arg.name] = el.value;
+    }
+    return args;
+}
+
+async function updateCommandPreview(panelId) {
+    try {
+        const r = await fetch('/api/commands/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command_id: panelState[panelId].commandId, args: collectCommandArgs(panelId) }),
+        });
+        const data = await r.json();
+        document.getElementById(panelId + 'Preview').textContent = r.ok ? data.preview : 'Invalid: ' + (data.detail || r.statusText);
+    } catch(e) {
+        document.getElementById(panelId + 'Preview').textContent = 'Preview unavailable: ' + e.message;
+    }
+}
+
+async function runCommandPanel(panelId) {
+    if (!canStartProcess(panelId + 'Term')) return;
+    clearTerm(panelId + 'Term');
+    try {
+        const r = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command_id: panelState[panelId].commandId, args: collectCommandArgs(panelId) }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || r.statusText);
+        panelState[panelId].jobId = data.id;
+        isRunning = true;
+        serverRunning = true;
+        setProcessControlsDisabled(true);
+        document.getElementById(panelId + 'Run').style.display = 'none';
+        document.getElementById(panelId + 'Stop').style.display = '';
+        subscribeJobEvents(panelId, data.id);
+        refreshDashboard();
+    } catch(e) {
+        appendTerm(panelId + 'Term', '!! ' + e.message);
+    }
+}
+
+function subscribeJobEvents(panelId, jobId) {
+    if (genericJobSources[panelId]) genericJobSources[panelId].close();
+    const es = new EventSource(`/api/jobs/${jobId}/events`);
+    genericJobSources[panelId] = es;
+    es.onmessage = (e) => {
+        let d;
+        try { d = JSON.parse(e.data); } catch(err) { return; }
+        if (d.type === 'output') appendTerm(panelId + 'Term', d.text);
+        if (d.type === 'metric') appendTerm(panelId + 'Term', `metric step=${d.step}/${d.total} loss=${d.loss} tok/s=${d.tok_per_sec}`);
+        if (d.type === 'done' || d.type === 'error') {
+            if (d.type === 'error') appendTerm(panelId + 'Term', '!! ' + d.text);
+            finishCommandPanel(panelId);
+        }
+    };
+    es.onerror = () => {
+        appendTerm(panelId + 'Term', '!! Job event stream disconnected');
+        finishCommandPanel(panelId);
+    };
+}
+
+function finishCommandPanel(panelId) {
+    if (genericJobSources[panelId]) { genericJobSources[panelId].close(); genericJobSources[panelId] = null; }
+    document.getElementById(panelId + 'Run').style.display = '';
+    document.getElementById(panelId + 'Stop').style.display = 'none';
+    isRunning = false;
+    serverRunning = false;
+    setProcessControlsDisabled(false);
+    refreshDashboard();
+    loadCheckpointTable();
+}
+
+async function stopCommandPanel(panelId) {
+    const jobId = panelState[panelId]?.jobId;
+    if (!jobId) return;
+    await fetch(`/api/jobs/${jobId}/stop`, { method: 'POST' });
+    finishCommandPanel(panelId);
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
 // ─── Status ──────────────────────────────────────────────────────────────────
 function applyStatus(s) {
     if (s.device) {
@@ -691,29 +1061,35 @@ function applyStatus(s) {
     artifactReady[2] = !!s.train && Object.keys(s.train).length > 0;
     artifactReady[3] = !!s.sft && Object.keys(s.sft).length > 0;
     artifactReady[4] = artifactReady[2] || artifactReady[3];
+    for (let i = 5; i < NUM_STEPS; i++) artifactReady[i] = true;
 
     if (!progressLoaded) {
-        for (let i = 0; i < NUM_STEPS; i++) stepDone[i] = i === 4 ? !!s.chat : artifactReady[i];
+        for (let i = 0; i < NUM_STEPS; i++) stepDone[i] = i < 5 ? (i === 4 ? !!s.chat : artifactReady[i]) : false;
         progressLoaded = true;
         saveProgress();
     }
 
-    modelLoaded = !!s.chat;
+    const workersReady = !!(s.chat_workers && s.chat_workers.ready);
+    modelLoaded = !!s.chat || workersReady;
     serverRunning = !!s.running;
-    document.getElementById('btnUnload').style.display = modelLoaded ? '' : 'none';
+    document.getElementById('btnUnload').style.display = s.chat ? '' : 'none';
 
     const empty = document.getElementById('chatEmpty');
     if (modelLoaded) {
         if (empty) empty.style.display = 'none';
         document.getElementById('chatSend').disabled = !document.getElementById('chatInput').value.trim();
-        if (s.chat_model) {
+        if (workersReady) {
+            const w = s.chat_workers;
+            document.getElementById('loadStatus').textContent = `Worker pool ready (${w.available_workers}/${w.num_gpus} available)`;
+        } else if (s.chat_model) {
             const srcLabel = s.chat_model.source === 'sft' ? ' SFT' : '';
             document.getElementById('loadStatus').textContent = `Loaded d${s.chat_model.depth}${srcLabel} step ${s.chat_model.step}`;
         }
     } else {
         if (empty) empty.style.display = '';
         document.getElementById('chatSend').disabled = true;
-        if (document.getElementById('loadStatus').textContent.startsWith('Loaded d')) {
+        const loadStatus = document.getElementById('loadStatus');
+        if (loadStatus.textContent.startsWith('Loaded d') || loadStatus.textContent.startsWith('Worker pool ready')) {
             document.getElementById('loadStatus').textContent = '';
         }
     }
@@ -721,6 +1097,8 @@ function applyStatus(s) {
     updateNav();
     setProcessControlsDisabled(isRunning || serverRunning);
     if (serverRunning && !isRunning) scheduleStatusPoll();
+    updateDashboardFromStatus(s);
+    updateWorkerStats(s.chat_workers);
 }
 
 function scheduleStatusPoll() {
@@ -745,9 +1123,130 @@ async function refreshAfterStage(nextStep = null) {
     if (nextStep !== null && canAccess(nextStep)) goStep(nextStep);
 }
 
+function updateDashboardFromStatus(s) {
+    const device = s.device || {};
+    const vram = device.vram_total_mib ? `${Math.round((device.vram_free_mib || 0) / 1024)} / ${Math.round(device.vram_total_mib / 1024)} GB free` : 'VRAM unknown';
+    setText('dashDevice', device.backend === 'cuda' ? 'CUDA' : (device.backend || 'unknown').toUpperCase());
+    setText('dashVram', `${device.name || '-'} · ${vram}`);
+    setText('dashData', s.data ? `${s.data_shards || 0}` : 'Missing');
+    setText('dashTokenizer', s.tokenizer ? 'Ready' : 'Missing');
+    const baseCount = s.train ? Object.values(s.train).reduce((a, b) => a + b, 0) : 0;
+    const sftCount = s.sft ? Object.values(s.sft).reduce((a, b) => a + b, 0) : 0;
+    const rlCount = s.rl ? Object.values(s.rl).reduce((a, b) => a + b, 0) : 0;
+    setText('dashCheckpoints', String(baseCount + sftCount + rlCount));
+    setText('dashCheckpointDetail', `${baseCount} base / ${sftCount} SFT / ${rlCount} RL`);
+    updateWorkerStats(s.chat_workers);
+}
+
+function updateWorkerStats(w) {
+    if (!w) return;
+    setText('dashWorkers', w.ready ? 'Ready' : w.loading ? 'Loading' : 'Off');
+    setText('dashWorkerDetail', w.ready ? `${w.available_workers}/${w.num_gpus} available` : 'Worker pool not loaded');
+    setText('workerReady', w.ready ? 'Yes' : w.loading ? 'Loading' : 'No');
+    setText('workerCount', String(w.num_gpus || 0));
+    setText('workerAvailable', String(w.available_workers || 0));
+    const busy = w.ready ? Math.max(0, (w.num_gpus || 0) - (w.available_workers || 0)) : 0;
+    setText('workerBusy', String(busy));
+}
+
+async function refreshDashboard() {
+    await fetchStatus();
+    try {
+        const r = await fetch('/api/jobs');
+        const jobs = await r.json();
+        const active = jobs.find(j => j.status === 'running');
+        setText('dashJobs', active ? `#${active.id}` : 'Idle');
+        setText('dashJobDetail', active ? active.command_id : `${jobs.length} recorded jobs`);
+    } catch(e) {
+        setText('dashJobs', 'Error');
+        setText('dashJobDetail', e.message);
+    }
+}
+
+async function loadCheckpointTable() {
+    try {
+        const r = await fetch('/api/checkpoints');
+        const list = await r.json();
+        const wrap = document.getElementById('checkpointTableWrap');
+        if (!list.length) {
+            wrap.innerHTML = '<div class="empty-state" style="min-height:120px;">No checkpoints found.</div>';
+            return;
+        }
+        wrap.innerHTML = `<table class="checkpoint-table">
+            <thead><tr><th>Source</th><th>Depth</th><th>Step</th><th>Emb</th><th>Heads</th><th>Seq</th><th>Window</th></tr></thead>
+            <tbody>${list.map(c => `<tr><td>${escapeHtml(c.source)}</td><td>d${c.depth}</td><td>${c.step}</td><td>${c.n_embd}</td><td>${c.n_head}</td><td>${c.sequence_len}</td><td>${escapeHtml(c.window_pattern)}</td></tr>`).join('')}</tbody>
+        </table>`;
+    } catch(e) {
+        document.getElementById('checkpointTableWrap').innerHTML = `<div class="error-message">${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function refreshChatWorkers() {
+    try {
+        const r = await fetch('/api/chat/stats');
+        const stats = await r.json();
+        updateWorkerStats({
+            ready: stats.total_workers > 0,
+            num_gpus: stats.total_workers,
+            available_workers: stats.available_workers,
+        });
+        appendTerm('workerLog', JSON.stringify(stats, null, 2));
+    } catch(e) {
+        appendTerm('workerLog', '!! ' + e.message);
+    }
+}
+
+async function loadChatWorkers() {
+    clearTerm('workerLog');
+    const payload = {
+        source: document.getElementById('workerSource').value,
+        model_tag: document.getElementById('workerModelTag').value.trim() || null,
+        step: parseInt(document.getElementById('workerStep').value, 10),
+        num_gpus: parseInt(document.getElementById('workerNumGpus').value, 10),
+        device_type: document.getElementById('workerDeviceType').value,
+        temperature: parseFloat(document.getElementById('workerTemp').value),
+        top_k: parseInt(document.getElementById('workerTopK').value, 10),
+        max_tokens: parseInt(document.getElementById('workerMaxTokens').value, 10),
+    };
+    try {
+        document.getElementById('btnWorkerLoad').disabled = true;
+        appendTerm('workerLog', 'Loading worker pool...');
+        const r = await fetch('/api/chat/workers/load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || r.statusText);
+        appendTerm('workerLog', JSON.stringify(data, null, 2));
+        await fetchStatus();
+    } catch(e) {
+        appendTerm('workerLog', '!! ' + e.message);
+    } finally {
+        document.getElementById('btnWorkerLoad').disabled = false;
+    }
+}
+
+async function unloadChatWorkers() {
+    try {
+        const r = await fetch('/api/chat/workers/unload', { method: 'POST' });
+        const data = await r.json();
+        appendTerm('workerLog', JSON.stringify(data, null, 2));
+        await fetchStatus();
+    } catch(e) {
+        appendTerm('workerLog', '!! ' + e.message);
+    }
+}
+
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
 // ─── Navigation ──────────────────────────────────────────────────────────────
-// Prerequisites: step 0=none, 1=0, 2=1, 3=2, 4=2 (SFT is optional for Chat)
-const STEP_PREREQS = [[], [0], [], [2], [2]];
+// Prerequisites: step 0=none, 1=0, 2=1, 3=2, 4=2 (SFT is optional for Chat).
+// Management tabs (5+) are always accessible.
+const STEP_PREREQS = [[], [0], [], [2], [2], [], [], [], [], [], [], []];
 
 function canAccess(idx) {
     return STEP_PREREQS[idx].every(p => artifactReady[p]);
