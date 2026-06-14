@@ -1,5 +1,101 @@
 # nanochat
 
+## Kaizen özel: Windows server'da sıfırdan CUDA UI kurulumu
+
+Bu bölüm, bu UI'ı yeni bir Windows/NVIDIA sunucuda `git clone` adımından
+itibaren çalıştırmak isteyenler içindir. Komutları Windows PowerShell'de çalıştırın.
+
+### 1. Gerekli araçları kur
+
+```powershell
+winget install --id Git.Git -e
+winget install --id astral-sh.uv -e
+```
+
+Kurulumdan sonra PowerShell'i kapatıp yeniden açın.
+
+### 2. NVIDIA GPU/CUDA görünürlüğünü kontrol et
+
+```powershell
+nvidia-smi
+```
+
+Bu komut NVIDIA kartı ve sürücüyü göstermelidir. Hata alırsanız önce NVIDIA
+sürücüsünü/CUDA uyumunu düzeltin.
+
+### 3. Repoyu klonla
+
+```powershell
+cd C:\Users\%USERNAME%\Desktop
+git clone https://github.com/walbis/nanochat-ui.git
+cd nanochat-ui
+```
+
+### 4. GPU bağımlılıklarını kur
+
+```powershell
+uv sync --extra gpu
+```
+
+Native Windows'ta `torch.compile` kullanmak isterseniz opsiyonel olarak:
+
+```powershell
+uv pip install "triton-windows>=3.5,<3.6"
+```
+
+Triton kurulmazsa UI gerektiğinde eager mode'a düşebilir; eğitim daha yavaş ama
+daha uyumlu çalışır.
+
+### 5. UI'ı yerel makinede başlat
+
+```powershell
+uv run --extra gpu python -m scripts.quickstart --port 8000
+```
+
+Tarayıcıdan açın:
+
+```text
+http://127.0.0.1:8000
+```
+
+Port 8000 doluysa örnek:
+
+```powershell
+uv run --extra gpu python -m scripts.quickstart --port 8001
+```
+
+### 6. Başka bilgisayardan Windows server'a bağlanmak için
+
+Sunucuyu dış bağlantıları dinleyecek şekilde başlatın:
+
+```powershell
+uv run --extra gpu python -m scripts.quickstart --host 0.0.0.0 --port 8000
+```
+
+Windows firewall'da portu açın:
+
+```powershell
+New-NetFirewallRule -DisplayName "NanoChat UI 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+```
+
+Başka bilgisayardaki tarayıcıdan:
+
+```text
+http://SERVER_IP:8000
+```
+
+Önemli: Bu UI'da authentication yok. İnternete açık bırakmayın; mümkünse VPN,
+lokal ağ veya güvenli tünel kullanın.
+
+### 7. Güncelleme almak için
+
+```powershell
+cd C:\Users\%USERNAME%\Desktop\nanochat-ui
+git pull
+uv sync --extra gpu
+uv run --extra gpu python -m scripts.quickstart --port 8000
+```
+
 ![nanochat logo](dev/nanochat.png)
 ![scaling laws](dev/scaling_laws_jan26.png)
 
